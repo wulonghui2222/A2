@@ -15,8 +15,11 @@ Output ONLY a valid JSON object in this exact format (no markdown, no explanatio
   "features": ["Feature 1", "Feature 2"],
   "dataModels": [
     {"name": "Model name", "fields": [{"name": "field name", "type": "string|number|boolean"}]}
-  ]
-}`;
+  ],
+  "tags": ["tag1", "tag2", "tag3"]
+}
+
+The "tags" field MUST contain 2-5 short Chinese category tags describing the app's domain or type (e.g. ["\u6e38\u620f", "\u4f11\u95f2"], ["\u5de5\u5177", "\u6548\u7387"], ["\u793e\u4ea4", "\u5a31\u4e50"]). Use common, reusable categories.`;
 
 const ARCHITECT_SYSTEM_PROMPT = `You are a System Architect Agent. Based on the requirement specification, design the page structure and technical plan for a single-file HTML web application.
 
@@ -59,6 +62,7 @@ export async function runPMAgent(
       pages: [{ name: "Main", elements: ["Header", "Content", "Footer"] }],
       features: ["Basic functionality"],
       dataModels: [],
+      tags: [],
     };
   }
   return spec;

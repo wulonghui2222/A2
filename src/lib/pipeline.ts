@@ -93,7 +93,7 @@ export async function runPipeline(
   await saveMessage(sessionId, archDoneMsg);
 
   // ─── Stage 3: Engineer Agent ─────────────────────────────────
-  const engStartMsg = createMessage(sessionId, "engineer", "正在生成应用代码...");
+  const engStartMsg = createMessage(sessionId, "engineer", "正在生成项目代码...");
   onEvent({ stage: "engineer_coding", message: engStartMsg, progress: 70 });
   await saveMessage(sessionId, engStartMsg);
 
@@ -134,12 +134,13 @@ export async function runPipeline(
       description: requirementSpec.description,
       code,
       status: "completed",
+      tags: JSON.stringify(requirementSpec.tags ?? []),
     },
   });
 
   const doneMsg = createMessage(
     sessionId, "system",
-    "项目已保存！你可以在预览区域查看生成的应用。"
+    "项目已保存！你可以在预览区域查看生成的项目。"
   );
   onEvent({ stage: "completed", message: doneMsg, progress: 100 });
   await saveMessage(sessionId, doneMsg);

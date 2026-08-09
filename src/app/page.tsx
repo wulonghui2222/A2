@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useGenerationStore } from "@/lib/store";
 import { PromptInput } from "@/components/PromptInput";
 import { AgentMessages } from "@/components/AgentMessages";
+import { UserMenu } from "@/components/UserMenu";
 import { MODEL_CATALOG, DEFAULT_MODEL_ID } from "@/lib/models";
 
 export default function HomePage() {
@@ -41,9 +43,13 @@ export default function HomePage() {
             <span className="font-semibold text-gray-900">Atoms Demo</span>
           </div>
           <nav className="flex items-center gap-4">
-            <button className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-              Gallery
-            </button>
+            <Link
+              href="/gallery"
+              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              项目画廊
+            </Link>
+            <UserMenu />
           </nav>
         </div>
       </header>
@@ -52,7 +58,7 @@ export default function HomePage() {
       {!isGenerating && messages.length === 0 && (
         <section className="max-w-6xl mx-auto px-6 pt-24 pb-16 text-center">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-            用自然语言构建你的下一个应用
+            用自然语言构建你的下一个项目
           </h1>
           <p className="text-lg text-gray-500 mb-10 max-w-2xl mx-auto">
             AI Agent 团队自动协作，将你的想法转化为可运行的 Web 应用
@@ -92,7 +98,7 @@ export default function HomePage() {
             <div className="mb-8">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-700">
-                  正在生成应用...
+                  正在生成项目...
                 </span>
                 <span className="text-sm text-gray-500">{progress}%</span>
               </div>
@@ -129,14 +135,14 @@ export default function HomePage() {
                 className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-medium
                          hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
               >
-                查看生成的应用 →
+                查看生成的项目 →
               </button>
               <button
                 onClick={reset}
                 className="ml-4 px-6 py-3 rounded-xl border border-gray-200 text-gray-600
                          hover:bg-gray-50 transition-all"
               >
-                创建新应用
+                创建新项目
               </button>
             </div>
           )}

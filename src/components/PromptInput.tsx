@@ -14,7 +14,7 @@ interface PromptInputProps {
 export function PromptInput({
   onSubmit,
   disabled = false,
-  placeholder = "描述你想要的应用...",
+  placeholder = "描述你想要的项目...",
   models = [],
   defaultModel,
 }: PromptInputProps) {

@@ -6,6 +6,15 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  password    String // bcrypt hash
+  displayName String?
+  createdAt   DateTime @default(now())
+  projects    Project[]
+}
+
 model Project {
   id          String   @id @default(uuid())
   title       String
@@ -13,12 +22,14 @@ model Project {
   prompt      String
   code        String   @default("")
   status      String   @default("generating") // generating | completed | failed
-  isPublic    Boolean  @default(true)
+  isPublic    Boolean  @default(false)
   viewCount   Int      @default(0)
   tags        String   @default("[]") // JSON string array
   thumbnail   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   sessions    Session[]
 }
 

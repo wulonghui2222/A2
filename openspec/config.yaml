@@ -7,6 +7,13 @@ context: |
   Prisma ORM (SQLite), Zustand, Shiki, OpenAI/Anthropic/Alibaba Bailian API
   Deploy target: Vercel
   Language: TypeScript (primary), Chinese (UI copy)
+  Naming convention (terminology):
+  - Chinese UI copy SHALL use "项目" (not "应用") to refer to a user's generated artifact.
+  - English code, specs, routes, components, and data models SHALL use Project / project
+    (e.g. /my-projects, ProjectGrid, Project model, projects[]).
+  - Exception: when describing the product's *output type* in marketing copy
+    (e.g. "AI Agent 驱动的 Web 应用生成平台"), "应用" is acceptable because it
+    refers to "Web App" as a class of artifact, not to a managed Project record.
 
 rules:
   proposal:

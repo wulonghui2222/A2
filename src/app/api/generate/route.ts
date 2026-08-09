@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { prisma } from "@/lib/prisma";
 import { runPipeline } from "@/lib/pipeline";
 import { findModel } from "@/lib/models";
+import { auth } from "@/auth";
 import type { GenerateRequest, GenerateResponse } from "@/lib/types";
 import type { LLMOptions } from "@/lib/llm";
 
@@ -11,6 +12,16 @@ export const maxDuration = 120; // Allow up to 2 minutes for generation
 
 export async function POST(request: NextRequest) {
   try {
+    // Require authenticated user
+    const userSession = await auth();
+    if (!userSession?.user?.id) {
+      return NextResponse.json(
+        { error: "请先登录", code: "UNAUTHORIZED" },
+        { status: 401 }
+      );
+    }
+    const userId = userSession.user.id;
+
     const body = (await request.json()) as GenerateRequest;
 
     if (!body.prompt || body.prompt.trim().length === 0) {
@@ -39,6 +50,7 @@ export async function POST(request: NextRequest) {
         title: "Generating...",
         prompt,
         status: "generating",
+        userId,
       },
     });
 

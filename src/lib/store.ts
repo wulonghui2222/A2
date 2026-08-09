@@ -48,6 +48,11 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
       if (!response.ok) {
         const data = await response.json();
+        // Redirect to login when session expired / not logged in
+        if (response.status === 401) {
+          window.location.href = "/login?callbackUrl=/";
+          return;
+        }
         throw new Error(data.error || "Generation failed");
       }
 

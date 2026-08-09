@@ -53,6 +53,7 @@ export interface RequirementSpec {
     name: string;
     fields: Array<{ name: string; type: string }>;
   }>;
+  tags?: string[];
 }
 
 // ─── Architect Agent Output ────────────────────────────────────
