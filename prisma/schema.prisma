@@ -1,0 +1,43 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  title       String
+  description String   @default("")
+  prompt      String
+  code        String   @default("")
+  status      String   @default("generating") // generating | completed | failed
+  isPublic    Boolean  @default(true)
+  viewCount   Int      @default(0)
+  tags        String   @default("[]") // JSON string array
+  thumbnail   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sessions    Session[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status    String   @default("active") // active | completed | archived
+  createdAt DateTime @default(now())
+  messages  AgentMessage[]
+}
+
+model AgentMessage {
+  id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentRole String   // pm | architect | engineer | system | user
+  content   String
+  type      String   @default("text") // text | plan | code | error
+  timestamp DateTime @default(now())
+  metadata  String?  // JSON string for agent-specific output
+}

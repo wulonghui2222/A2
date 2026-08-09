@@ -1,0 +1,26 @@
+schema: spec-driven
+
+context: |
+  Project: A2 Atoms Demo — AI Agent 平台，用户通过自然语言描述需求，
+  AI Agent 团队自动完成从需求分析到代码生成、部署上线的全流程。
+  Tech stack: Next.js 15 (App Router), Tailwind CSS, shadcn/ui,
+  Prisma ORM (SQLite), Zustand, Shiki, OpenAI/Anthropic/Alibaba Bailian API
+  Deploy target: Vercel
+  Language: TypeScript (primary), Chinese (UI copy)
+
+rules:
+  proposal:
+    - Include scope boundaries and non-goals
+    - Reference user stories by ID
+  tasks:
+    - Break tasks into chunks of max 2 hours
+    - Each task should be independently testable
+
+operations:
+  apply:
+    guidance:
+      - Run linting and type checks after each task group
+      - Keep test summaries concise
+  archive:
+    guidance:
+      - Summarize the archive outcome before finishing
