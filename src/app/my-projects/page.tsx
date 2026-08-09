@@ -26,7 +26,7 @@ export default async function MyProjectsPage() {
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
               <span className="text-white font-bold text-sm">A2</span>
             </div>
-            <span className="font-semibold text-gray-900">Atoms Demo</span>
+            <span className="font-semibold text-gray-900">Atoms</span>
           </Link>
           <div className="flex items-center gap-4">
             <Link
@@ -35,12 +35,13 @@ export default async function MyProjectsPage() {
             >
               项目画廊
             </Link>
-            <div className="flex items-center gap-3 text-sm text-gray-600">
-              <span>{session.user.name}</span>
-              <Link href="/" className="text-indigo-600 hover:underline">
-                创建新项目
-              </Link>
-            </div>
+            <span className="text-sm text-indigo-600 font-medium">我的项目</span>
+            <Link
+              href="/"
+              className="text-sm text-indigo-600 hover:underline"
+            >
+              创建新项目
+            </Link>
           </div>
         </div>
       </header>

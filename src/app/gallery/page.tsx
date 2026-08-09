@@ -57,10 +57,16 @@ export default async function GalleryPage() {
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
               <span className="text-white font-bold text-sm">A2</span>
             </div>
-            <span className="font-semibold text-gray-900">Atoms Demo</span>
+            <span className="font-semibold text-gray-900">Atoms</span>
           </Link>
           <nav className="flex items-center gap-4">
             <span className="text-sm text-indigo-600 font-medium">项目画廊</span>
+            <Link
+              href="/my-projects"
+              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              我的项目
+            </Link>
             <Link
               href="/"
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"

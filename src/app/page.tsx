@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useGenerationStore } from "@/lib/store";
 import { PromptInput } from "@/components/PromptInput";
 import { AgentMessages } from "@/components/AgentMessages";
-import { UserMenu } from "@/components/UserMenu";
 import { MODEL_CATALOG, DEFAULT_MODEL_ID } from "@/lib/models";
 
 export default function HomePage() {
@@ -40,7 +39,7 @@ export default function HomePage() {
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
               <span className="text-white font-bold text-sm">A2</span>
             </div>
-            <span className="font-semibold text-gray-900">Atoms Demo</span>
+            <span className="font-semibold text-gray-900">Atoms</span>
           </div>
           <nav className="flex items-center gap-4">
             <Link
@@ -49,7 +48,12 @@ export default function HomePage() {
             >
               项目画廊
             </Link>
-            <UserMenu />
+            <Link
+              href="/my-projects"
+              className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              我的项目
+            </Link>
           </nav>
         </div>
       </header>
@@ -58,7 +62,7 @@ export default function HomePage() {
       {!isGenerating && messages.length === 0 && (
         <section className="max-w-6xl mx-auto px-6 pt-24 pb-16 text-center">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-            用自然语言构建你的下一个项目
+            用AI构建你的下一个项目
           </h1>
           <p className="text-lg text-gray-500 mb-10 max-w-2xl mx-auto">
             AI Agent 团队自动协作，将你的想法转化为可运行的 Web 应用
@@ -71,20 +75,21 @@ export default function HomePage() {
           />
 
           {/* Agent Team Intro */}
-          <div className="mt-16 flex items-center justify-center gap-8">
+          <div className="mt-16 flex items-center justify-center gap-4 flex-wrap">
+            <span className="text-sm text-gray-400">你的AI Agent团队</span>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <span className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">📋</span>
-              PM Agent
+              项目经理
             </div>
             <span className="text-gray-300">→</span>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <span className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">🏗️</span>
-              Architect
+              架构师
             </div>
             <span className="text-gray-300">→</span>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <span className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">⚡</span>
-              Engineer
+              工程师
             </div>
           </div>
         </section>

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { SessionProvider } from "next-auth/react";
+import { UserMenu } from "@/components/UserMenu";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "A2 Atoms Demo",
+  title: "A2 Atoms",
   description: "AI Agent 驱动的 Web 应用生成平台",
 };
 
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="antialiased">
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          {children}
+          <UserMenu />
+        </SessionProvider>
       </body>
     </html>
   );

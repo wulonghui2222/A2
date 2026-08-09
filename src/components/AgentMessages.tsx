@@ -6,9 +6,9 @@ const ROLE_CONFIG: Record<
   string,
   { label: string; color: string; bg: string; icon: string }
 > = {
-  pm: { label: "PM Agent", color: "text-blue-700", bg: "bg-blue-50", icon: "📋" },
-  architect: { label: "Architect", color: "text-purple-700", bg: "bg-purple-50", icon: "🏗️" },
-  engineer: { label: "Engineer", color: "text-green-700", bg: "bg-green-50", icon: "⚡" },
+  pm: { label: "项目经理", color: "text-blue-700", bg: "bg-blue-50", icon: "📋" },
+  architect: { label: "架构师", color: "text-purple-700", bg: "bg-purple-50", icon: "🏗️" },
+  engineer: { label: "工程师", color: "text-green-700", bg: "bg-green-50", icon: "⚡" },
   system: { label: "System", color: "text-gray-700", bg: "bg-gray-50", icon: "🔧" },
   user: { label: "You", color: "text-orange-700", bg: "bg-orange-50", icon: "👤" },
 };

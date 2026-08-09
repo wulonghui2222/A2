@@ -10,17 +10,17 @@ export function UserMenu() {
 
   if (!session?.user) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-2 rounded-xl bg-white/90 backdrop-blur-sm border border-gray-200 px-3 py-2 shadow-sm">
         <Link
           href="/login"
           className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
         >
           登录
         </Link>
+        <span className="text-gray-300">|</span>
         <Link
           href="/register"
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white
-                     hover:bg-indigo-700 transition-colors"
+          className="text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
         >
           注册
         </Link>
@@ -29,22 +29,19 @@ export function UserMenu() {
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="fixed top-4 right-4 z-50 flex items-center gap-3 rounded-xl bg-white/90 backdrop-blur-sm border border-gray-200 px-3 py-2 shadow-sm">
+      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-xs font-medium text-indigo-700">
+        {(session.user.name || "?").charAt(0).toUpperCase()}
+      </span>
       <Link
         href="/my-projects"
-        className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+        className="text-sm text-gray-700 hover:text-gray-900 transition-colors"
       >
-        我的项目
-      </Link>
-      <span className="flex items-center gap-1.5 text-sm text-gray-700">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-xs font-medium text-indigo-700">
-          {(session.user.name || "?").charAt(0).toUpperCase()}
-        </span>
         {session.user.name}
-      </span>
+      </Link>
       <button
         onClick={() => signOut({ callbackUrl: "/" })}
-        className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+        className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
       >
         退出
       </button>
