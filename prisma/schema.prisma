@@ -21,6 +21,7 @@ model Project {
   description String   @default("")
   prompt      String
   code        String   @default("")
+  files       String?  // JSON-serialized dist file tree saved from the workbench
   status      String   @default("generating") // generating | completed | failed
   isPublic    Boolean  @default(false)
   viewCount   Int      @default(0)
@@ -51,4 +52,13 @@ model AgentMessage {
   type      String   @default("text") // text | plan | code | error
   timestamp DateTime @default(now())
   metadata  String?  // JSON string for agent-specific output
+}
+
+model WorkbenchToken {
+  id         String    @id @default(uuid())
+  token      String    @unique
+  projectId  String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
 }

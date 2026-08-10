@@ -10,13 +10,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   // Protect routes requiring login
-  if (!isLoggedIn && (pathname.startsWith("/my-projects") || pathname === "/api/generate")) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { error: "请先登录", code: "UNAUTHORIZED" },
-        { status: 401 }
-      );
-    }
+  if (!isLoggedIn && pathname.startsWith("/my-projects")) {
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(loginUrl);
@@ -31,5 +25,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/my-projects/:path*", "/login", "/register", "/api/generate"],
+  matcher: ["/my-projects/:path*", "/login", "/register"],
 };

@@ -33,3 +33,6 @@ Thumbs.db
 .vscode/
 .idea/
 .qoder/
+
+# Alternate dev build dir (see next.config.ts)
+.next-rebuild
