@@ -33,3 +33,8 @@ Thumbs.db
 .vscode/
 .idea/
 .qoder/
+
+# Workbench (bolt.diy fork) is now a tracked subdirectory of A2-dev.
+# Its own workbench/.gitignore excludes node_modules, .env, .dev.vars, .wrangler, etc.
+# See openspec change: bolt-fork-replatform
+

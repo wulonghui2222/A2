@@ -1,0 +1,50 @@
+// A2 (design D4, task 3.1): server-side persistence schema.
+// SQLite file-based DB; the app runs as a single local Node process (NFR-04),
+// hosted by the a2NodeServer vite plugin (not workerd), so Prisma is viable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  username  String    @unique
+  password  String // bcrypt hash
+  createdAt DateTime  @default(now())
+  projects  Project[]
+}
+
+// One Project == one workbench chat (bolt ChatHistoryItem).
+model Project {
+  id          String    @id @default(cuid())
+  urlId       String    @unique // URL slug, derived from the first artifact id
+  description String? // chat title, from the first artifact title
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+
+  @@index([userId, updatedAt])
+}
+
+// Messages are stored denormalized-per-chat with explicit ordering; the
+// adapter replaces the whole list on save (idempotent upsert semantics from
+// the IndexedDB `put` flow, see docs/a2-persistence-notes.md).
+model Message {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  seq       Int // position within the chat
+  role      String // 'user' | 'assistant' | 'system'
+  content   String // JSON-serialized ai SDK message content (keeps [Model:]/[Provider:] prefixes)
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, seq])
+  @@index([projectId])
+}
