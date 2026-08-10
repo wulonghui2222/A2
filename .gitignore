@@ -38,3 +38,8 @@ Thumbs.db
 # Its own workbench/.gitignore excludes node_modules, .env, .dev.vars, .wrangler, etc.
 # See openspec change: bolt-fork-replatform
 
+# Workbench debug/utility files
+workbench/chrome-debug-profile/
+workbench/shots/
+workbench/*.ps1
+
