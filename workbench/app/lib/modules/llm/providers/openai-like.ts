@@ -2,7 +2,7 @@ import { BaseProvider, getOpenAILikeModel } from '~/lib/modules/llm/base-provide
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import type { IProviderSetting } from '~/types/model';
 import type { LanguageModelV1 } from 'ai';
-import { A2_CLIENT_KEY_PLACEHOLDER, A2_DEFAULT_MODEL, A2_LLM_BASE_URL } from '~/a2/config';
+import { A2_CLIENT_KEY_PLACEHOLDER, A2_DEFAULT_MODEL, A2_ENABLE_BYOK, A2_LLM_BASE_URL } from '~/a2/config';
 
 export default class OpenAILikeProvider extends BaseProvider {
   name = 'OpenAILike';
@@ -72,13 +72,22 @@ export default class OpenAILikeProvider extends BaseProvider {
   }): LanguageModelV1 {
     const { model, serverEnv, apiKeys, providerSettings } = options;
 
-    const { baseUrl, apiKey } = this.getProviderBaseUrlAndKey({
-      apiKeys,
-      providerSettings: providerSettings?.[this.name],
-      serverEnv: serverEnv as any,
-      defaultBaseUrlKey: 'OPENAI_LIKE_API_BASE_URL',
-      defaultApiTokenKey: 'OPENAI_LIKE_API_KEY',
-    });
+    // A2 (LG-02/LG-04): when BYOK is disabled, always route through the
+    // platform gateway. Stale cookies (apiKeys/providers) from before BYOK
+    // was turned off must not override the gateway URL or inject a stale key
+    // that bypasses the server-side credential injection.
+    const cookieConfig = A2_ENABLE_BYOK
+      ? this.getProviderBaseUrlAndKey({
+          apiKeys,
+          providerSettings: providerSettings?.[this.name],
+          serverEnv: serverEnv as any,
+          defaultBaseUrlKey: 'OPENAI_LIKE_API_BASE_URL',
+          defaultApiTokenKey: 'OPENAI_LIKE_API_KEY',
+        })
+      : { baseUrl: A2_LLM_BASE_URL, apiKey: undefined };
+
+    const baseUrl = cookieConfig.baseUrl;
+    const apiKey = cookieConfig.apiKey;
 
     if (!baseUrl) {
       throw new Error(`Missing configuration for ${this.name} provider`);
