@@ -30,7 +30,14 @@ model Project {
   updatedAt   DateTime  @updatedAt
   messages    Message[]
 
+  // A2 project-plaza (D1): public visibility, popularity, and the file tree
+  // snapshot the plaza visitor view boots from (JSON: path -> content).
+  isPublic     Boolean  @default(false)
+  viewCount    Int      @default(0)
+  fileSnapshot String?
+
   @@index([userId, updatedAt])
+  @@index([isPublic, viewCount])
 }
 
 // Messages are stored denormalized-per-chat with explicit ordering; the

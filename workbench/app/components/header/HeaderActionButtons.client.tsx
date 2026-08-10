@@ -1,7 +1,11 @@
 import { useStore } from '@nanostores/react';
+import { useState } from 'react';
+import { toast } from 'react-toastify';
 import useViewport from '~/lib/hooks';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
+import { chatId } from '~/lib/persistence';
+import { saveProjectSnapshot } from '~/a2/persistence/db';
 import { classNames } from '~/utils/classNames';
 
 interface HeaderActionButtonsProps {}
@@ -15,7 +19,7 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
   const canHideChat = showWorkbench || !showChat;
 
   return (
-    <div className="flex">
+    <div className="flex items-center gap-2">
       <div className="flex border border-bolt-elements-borderColor rounded-md overflow-hidden">
         <Button
           active={showChat}
@@ -42,7 +46,45 @@ export function HeaderActionButtons({}: HeaderActionButtonsProps) {
           <div className="i-ph:code-bold" />
         </Button>
       </div>
+      {/* A2 project-plaza (task 5.3): explicit save — writes the file snapshot. */}
+      <SaveProjectButton />
     </div>
+  );
+}
+
+function SaveProjectButton() {
+  const [saving, setSaving] = useState(false);
+
+  const onClick = async () => {
+    const id = chatId.get();
+
+    if (!id) {
+      toast.error('项目还没有完成首次保存，请等待生成结束后重试');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await saveProjectSnapshot(id);
+      toast.success('已保存，可公开到项目广场');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <button
+      className="flex items-center gap-1 px-2 py-1.5 border border-bolt-elements-borderColor rounded-md text-sm text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={saving}
+      onClick={onClick}
+      title="保存当前项目文件，生成广场展示用的快照"
+    >
+      <div className="i-ph:floppy-disk text-sm" />
+      {saving ? '保存中…' : '保存'}
+    </button>
   );
 }
 

@@ -19,44 +19,66 @@ export function Header() {
         'border-bolt-elements-borderColor': chat.started,
       })}
     >
-      <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer">
+      {/* Left: brand */}
+      <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer shrink-0">
         <div className="i-ph:sidebar-simple-duotone text-xl" />
         <a href="/" className="text-2xl font-semibold text-accent flex items-center">
           {/* A2: replace the bolt.diy logo image with the platform name. */}
           <span>A2</span>
         </a>
       </div>
+
+      {/* Center-left: navigation links */}
+      <nav className="flex-1 flex items-center gap-1 pl-8">
+        <a
+          href="/my-projects"
+          className="px-4 py-1.5 rounded-md text-[15px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive transition-colors"
+        >
+          我的项目
+        </a>
+        <a
+          href="/plaza"
+          className="px-4 py-1.5 rounded-md text-[15px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive transition-colors"
+        >
+          项目广场
+        </a>
+      </nav>
+
       {chat.started && ( // Display ChatDescription and HeaderActionButtons only when the chat has started.
-        <>
-          <span className="flex-1 px-4 truncate text-center text-bolt-elements-textPrimary">
+        <div className="flex items-center gap-2 mx-4 shrink-0">
+          <span className="truncate max-w-48 text-sm text-bolt-elements-textPrimary">
             <ClientOnly>{() => <ChatDescription />}</ClientOnly>
           </span>
           <ClientOnly>
             {() => (
-              <div className="mr-1">
+              <div>
                 <HeaderActionButtons />
               </div>
             )}
           </ClientOnly>
-        </>
-      )}
-      {loaderData?.username && (
-        <div className="ml-auto flex items-center gap-3 text-sm text-bolt-elements-textSecondary">
-          {/* A2 (task 5.x): entry point to "我的项目" (WB-07). */}
-          <a href="/my-projects" className="hover:text-bolt-elements-textPrimary">
-            我的项目
-          </a>
-          <span>{loaderData.username}</span>
-          <Form method="post" action="/logout">
-            <button
-              type="submit"
-              className="text-bolt-elements-item-contentAccent hover:underline"
-            >
-              退出
-            </button>
-          </Form>
         </div>
       )}
+
+      {/* Right: user area */}
+      <div className="ml-auto flex items-center shrink-0">
+        {loaderData?.username ? (
+          <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-gray-100">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-300 text-xs font-semibold text-gray-700">
+              {(loaderData.username || '?').charAt(0).toUpperCase()}
+            </span>
+            <span className="text-sm text-gray-700">{loaderData.username}</span>
+            <Form method="post" action="/logout">
+              <button type="submit" className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                退出
+              </button>
+            </Form>
+          </div>
+        ) : (
+          <a href="/login" className="text-sm text-bolt-elements-item-contentAccent hover:underline">
+            登录
+          </a>
+        )}
+      </div>
     </header>
   );
 }

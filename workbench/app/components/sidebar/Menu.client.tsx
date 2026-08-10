@@ -154,7 +154,7 @@ export const Menu = () => {
             className="flex gap-2 items-center bg-bolt-elements-sidebar-buttonBackgroundDefault text-bolt-elements-sidebar-buttonText hover:bg-bolt-elements-sidebar-buttonBackgroundHover rounded-md p-2 transition-theme mb-4"
           >
             <span className="inline-block i-bolt:chat scale-110" />
-            Start new chat
+            创建新的项目
           </a>
           <div className="relative w-full">
             <input
@@ -166,7 +166,8 @@ export const Menu = () => {
             />
           </div>
         </div>
-        <div className="text-bolt-elements-textPrimary font-medium pl-6 pr-5 my-2">Your Chats</div>
+        {/* A2: sidebar lists projects, not chats. */}
+        <div className="text-bolt-elements-textPrimary font-medium pl-6 pr-5 my-2">你的项目</div>
         <div className="flex-1 overflow-auto pl-4 pr-5 pb-5">
           {filteredList.length === 0 && (
             <div className="pl-2 text-bolt-elements-textTertiary">

@@ -2,19 +2,34 @@ import type { Message } from 'ai';
 import type { ChatHistoryItem } from '~/lib/persistence/useChatHistory';
 import { createScopedLogger } from '~/utils/logger';
 
-// A2 (design D4, task 3.3): server-backed drop-in replacement for bolt's
-// IndexedDB persistence (`lib/persistence/db.ts`). Same function signatures,
-// same resolve/reject semantics, so `useChatHistory` and all nanostores call
-// sites stay untouched. Storage moves from IndexedDB to the /api/projects
-// resource routes (session cookie travels with same-origin fetch).
-//
-// Mapping notes (see docs/a2-persistence-notes.md):
-// - id allocation (`getNextId`) becomes POST /api/projects (server cuid)
-// - `setMessages` is an idempotent whole-record PUT (bolt does full `put`s
-//   on a 50ms throttle while streaming; the route mirrors that)
-// - timestamps are owned by the server (`updatedAt`), client values ignored
+/*
+ * A2 (design D4, task 3.3): server-backed drop-in replacement for bolt's
+ * IndexedDB persistence (`lib/persistence/db.ts`). Same function signatures,
+ * same resolve/reject semantics, so `useChatHistory` and all nanostores call
+ * sites stay untouched. Storage moves from IndexedDB to the /api/projects
+ * resource routes (session cookie travels with same-origin fetch).
+ *
+ * Mapping notes (see docs/a2-persistence-notes.md):
+ * - id allocation (`getNextId`) becomes POST /api/projects (server cuid)
+ * - `setMessages` is an idempotent whole-record PUT (bolt does full `put`s
+ *   on a 50ms throttle while streaming; the route mirrors that)
+ * - timestamps are owned by the server (`updatedAt`), client values ignored
+ *
+ * A2 project-plaza (D2): `setMessages` additionally attaches a file tree
+ * snapshot (path -> content JSON) so the plaza visitor view can boot a
+ * preview without parsing message history. Collection is throttled because
+ * bolt saves on a 50ms stream throttle, and oversized snapshots are skipped
+ * (server keeps the previous one; the 2 MB hard cap lives server-side).
+ */
 
 const logger = createScopedLogger('A2ChatHistory');
+
+/** Server-side hard cap; mirrored client-side so normal saves never trip it. */
+export const FILE_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024;
+
+const SNAPSHOT_COLLECT_INTERVAL_MS = 2000;
+
+let lastSnapshotAt = 0;
 
 /** Opaque handle standing in for IDBDatabase; kept for signature parity. */
 export interface A2DbHandle {
@@ -31,6 +46,7 @@ interface ProjectSummary {
 
 interface ProjectDetail extends ProjectSummary {
   messages: Message[];
+  fileSnapshot?: string | null;
   timestamp: string;
 }
 
@@ -69,8 +85,10 @@ export async function getAll(_db: A2DbHandle): Promise<ChatHistoryItem[]> {
 
   const projects: ProjectSummary[] = await response.json();
 
-  // The list endpoint omits messages; sidebar/date-binning only needs the
-  // metadata fields, so an empty array keeps the ChatHistoryItem shape.
+  /*
+   * The list endpoint omits messages; sidebar/date-binning only needs the
+   * metadata fields, so an empty array keeps the ChatHistoryItem shape.
+   */
   return projects.map((project) => ({
     id: project.id,
     urlId: project.urlId,
@@ -98,6 +116,7 @@ async function fetchDetail(mixedId: string): Promise<ChatHistoryItem | undefined
     urlId: detail.urlId,
     description: detail.description ?? undefined,
     messages: detail.messages,
+    fileSnapshot: detail.fileSnapshot ?? undefined,
     timestamp: detail.timestamp,
   };
 }
@@ -127,10 +146,13 @@ export async function setMessages(
     throw new Error('Invalid timestamp');
   }
 
+  const fileSnapshot = await collectFileSnapshot();
+
   const response = await apiRequest('PUT', `${API}/${encodeURIComponent(id)}`, {
     messages,
     ...(urlId ? { urlId } : {}),
     ...(description ? { description } : {}),
+    ...(fileSnapshot !== undefined ? { fileSnapshot } : {}),
   });
 
   if (response.status === 404) {
@@ -139,6 +161,92 @@ export async function setMessages(
 
   if (!response.ok) {
     throw new Error(`Failed to save chat (${response.status})`);
+  }
+}
+
+/**
+ * A2 project-plaza (task 5.3): explicit save from the workbench header. Sends
+ * a snapshot-only PUT (no messages field; the server keeps the stored list)
+ * with throttling bypassed so the click always captures the current files.
+ * Throws with user-facing Chinese guidance on failure.
+ */
+export async function saveProjectSnapshot(id: string): Promise<void> {
+  const fileSnapshot = await collectFileSnapshot(true);
+
+  if (fileSnapshot === undefined) {
+    throw new Error('当前工作台没有可保存的文件内容');
+  }
+
+  const response = await apiRequest('PUT', `${API}/${encodeURIComponent(id)}`, { fileSnapshot });
+
+  if (response.status === 404) {
+    throw new Error('项目不存在或已删除');
+  }
+
+  if (response.status === 413) {
+    const detail = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
+
+    throw new Error(detail?.error ?? '文件快照过大（超过 2MB），请精简项目内容后再试');
+  }
+
+  if (!response.ok) {
+    throw new Error(`保存失败（${response.status}）`);
+  }
+}
+
+/**
+ * A2 project-plaza (D2): serialize the current workspace file tree as a
+ * flat `{ relativePath: content }` JSON string.
+ *
+ * Returns `undefined` (field omitted, server keeps its previous snapshot)
+ * when collection is throttled, the workspace is empty, or the result would
+ * exceed the size cap. `force` bypasses the throttle for explicit saves
+ * (task 5.3 save button). The workbench store is imported lazily because the
+ * persistence barrel sits inside the store's own import cycle.
+ */
+async function collectFileSnapshot(force = false): Promise<string | undefined> {
+  const now = Date.now();
+
+  if (!force && now - lastSnapshotAt < SNAPSHOT_COLLECT_INTERVAL_MS) {
+    return undefined;
+  }
+
+  lastSnapshotAt = now;
+
+  try {
+    const { workbenchStore } = await import('~/lib/stores/workbench');
+    const { extractRelativePath } = await import('~/utils/diff');
+    const files = workbenchStore.files.get();
+    const snapshot: Record<string, string> = {};
+    let count = 0;
+
+    for (const [filePath, dirent] of Object.entries(files)) {
+      if (dirent?.type !== 'file' || dirent.isBinary) {
+        continue;
+      }
+
+      snapshot[extractRelativePath(filePath)] = dirent.content;
+      count++;
+    }
+
+    if (count === 0) {
+      return undefined;
+    }
+
+    const json = JSON.stringify(snapshot);
+
+    if (json.length > FILE_SNAPSHOT_MAX_BYTES) {
+      logger.warn(`File snapshot exceeds ${FILE_SNAPSHOT_MAX_BYTES} bytes; keeping previous snapshot`);
+
+      return undefined;
+    }
+
+    return json;
+  } catch (error) {
+    // Snapshot collection must never break chat saving.
+    logger.warn('Failed to collect file snapshot', error);
+
+    return undefined;
   }
 }
 
