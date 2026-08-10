@@ -128,7 +128,13 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           contextOptimization,
         });
 
-        stream.switchSource(result.toDataStream());
+        stream.switchSource(
+          result.toDataStream((error: Error) => {
+            logger.error('streamText continuation data-stream error:', error);
+
+            return error.message;
+          }),
+        );
 
         return;
       },
@@ -145,7 +151,13 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       contextOptimization,
     });
 
-    stream.switchSource(result.toDataStream());
+    stream.switchSource(
+      result.toDataStream((error: Error) => {
+        logger.error('streamText data-stream error:', error);
+
+        return error.message;
+      }),
+    );
 
     return new Response(stream.readable, {
       status: 200,

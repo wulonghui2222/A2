@@ -1,13 +1,6 @@
 # User Auth
 
-## Purpose
-
-Provides user account management including registration, login, and session
-persistence for the workbench platform, so that generated projects are tied to
-their creators. The personalized "我的项目" view lives in the `workbench`
-capability (WB-07).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: UA-01 User Registration
 
@@ -89,3 +82,14 @@ The system SHALL protect authenticated routes via route-level guards.
 
 - **WHEN** a logged-in user navigates to `/login` or `/register`
 - **THEN** the system redirects to the home page
+
+## REMOVED Requirements
+
+### Requirement: UA-05 My Projects View
+
+**Reason**: "My Projects" behavior moves into the new `workbench` capability
+(WB-07 My Projects Management), where projects are chats persisted server-side
+and rendered by the fork application with Chinese UI copy.
+
+**Migration**: See `specs/workbench/spec.md` — Requirement WB-07 covers listing,
+empty state, opening, and deletion of own projects.

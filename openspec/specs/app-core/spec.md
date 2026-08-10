@@ -1,276 +1,46 @@
 # App Core — Atoms Demo
 
-## Overview
+## Purpose
 
-A2 Atoms Demo 是一个 AI Agent 驱动的 Web 应用生成平台。用户通过自然语言描述需求，
-多 Agent 团队（PM → Architect → Engineer）自动协作完成从需求分析到代码生成的全流程，
-产出的应用以可视化网页形式展示并支持交互。
+A2 Atoms Demo 是一个 AI 驱动的 Web 项目生成平台。用户通过自然语言描述需求，
+工作台（`workbench` 能力）完成多文件工程的生成、预览与迭代；模型访问由平台
+统一 LLM 网关（`llm-gateway` 能力）提供。本能力定义平台级的生成入口与非功能
+约束；多 Agent 流水线、单 HTML 沙箱预览、模板与画廊等旧需求已在
+bolt-fork-replatform 重构中退役（FR-02 ~ FR-08）。
 
----
-
-## Functional Requirements
+## Requirements
 
 ### Requirement: FR-01 Application Generation
 
 **Priority**: P0
 
-The system SHALL allow **authenticated** users to generate a Web application by entering
-a natural language description. The system SHALL invoke LLM-powered agents to produce
-runnable code and render it as a live preview. Unauthenticated users SHALL be prompted
-to log in before generation.
+The system SHALL allow **authenticated** users to generate a runnable multi-file
+project by describing requirements in natural language, through the workbench chat
+flow. Generation, preview, and iteration are provided by the `workbench` capability;
+model access is provided by the `llm-gateway` capability. Unauthenticated users SHALL
+be prompted to log in before generation. The legacy multi-agent pipeline (PM →
+Architect → Engineer) and its polling status APIs no longer exist.
 
-#### Scenario: User generates an app from a prompt
+#### Scenario: User generates a project from a prompt
 
-- **GIVEN** an authenticated user on the home page
-- **WHEN** the user enters a natural language description and clicks "Generate" or presses Enter
-- **THEN** the system displays generation progress (agent messages)
-- **AND** a live, interactive preview of the generated app is shown upon completion
-- **AND** the preview contains at least one interactive element (button, form, or navigation)
-
-#### Scenario: Generation failure
-
-- **GIVEN** the user entered a vague or invalid prompt
-- **WHEN** the AI cannot produce a valid application
-- **THEN** the system displays a friendly error message with suggestions to retry or refine
-
-#### Scenario: Continuation from existing session
-
-- **GIVEN** a user has a previous session ID
-- **WHEN** the user provides `sessionId` in the generate request
-- **THEN** the system resumes generation within the existing session context
+- **GIVEN** an authenticated user on the workbench
+- **WHEN** the user enters a natural language description and submits it
+- **THEN** the assistant streams its response while writing project files
+- **AND** a live, interactive preview of the generated project runs upon completion
 
 #### Scenario: Unauthenticated user attempts generation
 
-- **GIVEN** an anonymous user on the home page
-- **WHEN** the user enters a prompt and clicks "Generate"
-- **THEN** the system redirects to `/login?callbackUrl=/`
-- **AND** after login, the user returns to the home page
-
-**API**: `POST /api/generate`
-```
-Request:  { prompt: string, sessionId?: string, model?: string }
-Response: { sessionId, projectId, status, previewUrl, messages[] }
-```
-
-**API**: `GET /api/generate/:sessionId/status`
-```
-Response: { status, progress (0-100), messages[], previewUrl? }
-```
+- **GIVEN** an anonymous user
+- **WHEN** the user attempts to access the workbench or generation APIs
+- **THEN** the system redirects to the login page with return to the original destination
 
 ---
-
-### Requirement: FR-02 Multi-Agent Collaboration
-
-**Priority**: P1
-
-The system SHALL simulate a multi-agent team that works in defined roles (PM → Architect → Engineer)
-during the generation process, displaying each agent's status and output to the user.
-
-#### Scenario: Sequential agent workflow
-
-- **GIVEN** a generation has started
-- **WHEN** the pipeline progresses
-- **THEN** the UI displays PM Agent → Architect Agent → Engineer Agent messages in order
-- **AND** each agent message includes a role label, avatar, and output summary
-
-#### Scenario: Human-in-the-Loop approval
-
-- **GIVEN** the PM Agent has completed requirement analysis
-- **WHEN** the system presents the requirement summary for confirmation
-- **THEN** the user may confirm to continue or edit the requirements
-- **AND** after confirmation, the workflow proceeds to the next agent
-
-**Agent Roles**:
-
-| Agent | Responsibility | Input | Output |
-|-------|---------------|-------|--------|
-| PM Agent | Requirement analysis | User prompt | Structured requirement JSON |
-| Architect Agent | Page structure & component design | Requirement spec | Architecture JSON |
-| Engineer Agent | Code generation | Architecture | Runnable HTML/CSS/JS |
-
----
-
-### Requirement: FR-03 Application Preview
-
-**Priority**: P0
-
-The system SHALL render the generated application in a sandboxed iframe, supporting real
-user interaction and responsive viewport switching.
-
-#### Scenario: View live preview
-
-- **GIVEN** a project whose generation status is "completed"
-- **WHEN** the user opens the project detail page
-- **THEN** the preview area renders the app in an `<iframe sandbox="allow-scripts allow-forms">`
-- **AND** the preview supports click and input interactions
-- **AND** the user can switch between desktop / tablet / phone viewports
-
-#### Scenario: Preview auto-refresh on iteration
-
-- **GIVEN** the user has triggered a modification (regeneration or iteration)
-- **WHEN** the modification completes
-- **THEN** the preview area automatically refreshes to show the latest version
-
----
-
-### Requirement: FR-04 Data Persistence
-
-**Priority**: P0
-
-The system SHALL persist all user project data, including project metadata, generated code,
-and session message history. Each project SHALL be associated with its creating user.
-
-#### Scenario: Auto-save on completion
-
-- **GIVEN** a generation status transitions to "completed"
-- **WHEN** the generation finishes
-- **THEN** project data (metadata + code + message history) is written to the database
-- **AND** the project record includes the creating user's `userId`
-- **AND** the project appears in the user's "My Projects" list
-
-#### Scenario: Browse historical projects
-
-- **GIVEN** the user has previously generated projects
-- **WHEN** the user opens the "My Projects" page
-- **THEN** only their own projects are listed, sorted by update time descending
-- **AND** clicking a project opens its detail and preview
-
----
-
-### Requirement: FR-05 Project Management
-
-**Priority**: P1
-
-The system SHALL provide a "My Projects" page (`/my-projects`) displaying the current
-user's projects as a card grid, and a project detail page (`/projects/:id`) that
-allows the project owner to preview, inspect, rename, and delete a project.
-
-#### Scenario: Project list display
-
-- **GIVEN** the user navigates to `/my-projects`
-- **WHEN** the page loads
-- **THEN** projects are displayed as a card grid
-- **AND** each card shows title, thumbnail (or placeholder), and creation time
-- **AND** cards are sorted by `updatedAt` descending
-
-#### Scenario: Project search
-
-- **GIVEN** the user types in the search box
-- **WHEN** the input changes
-- **THEN** the project list filters in real time to match the query (by title or content)
-
-#### Scenario: View project detail
-
-- **GIVEN** the authenticated owner navigates to `/projects/:id`
-- **WHEN** the page loads
-- **THEN** the system renders the project with three tabs: a live preview (sandboxed iframe of the generated app), a source-code view (syntax-highlighted), and a session-history view (PM / Architect / Engineer messages in chronological order)
-- **AND** the preview tab is selected by default
-- **AND** clicking a project card on `/my-projects` opens this page
-
-#### Scenario: Unauthorized detail access
-
-- **GIVEN** a visitor (anonymous or logged-in as a different user) navigates to `/projects/:id`
-- **WHEN** the project does not exist OR the visitor is not its owner
-- **THEN** the system responds with a 404 (no information leakage about existence)
-
-#### Scenario: Rename project
-
-- **GIVEN** the authenticated owner submits a new title via `PATCH /api/projects/:id`
-- **WHEN** the title is non-empty and within length bounds
-- **THEN** the system updates the project's title
-- **AND** responds with the updated project metadata
-
-#### Scenario: Delete project
-
-- **GIVEN** the authenticated owner confirms deletion on a project
-- **WHEN** `DELETE /api/projects/:id` is received
-- **THEN** the project, its sessions, and all associated messages are removed from the database
-- **AND** the system redirects (or the client navigates) to `/my-projects`
-
-#### Scenario: Delete confirmation
-
-- **GIVEN** the owner hovers or focuses a project card or views the detail page
-- **WHEN** the owner activates the delete action
-- **THEN** the system presents a confirmation popover requiring a second affirmative click before issuing the delete request
-- **AND** cancelling the popover does not issue any request
-
----
-
-### Requirement: FR-06 Template System
-
-**Priority**: P2
-
-The system SHALL provide preset templates that users can use as starting points,
-and support Remix of public projects.
-
-#### Scenario: Create from template
-
-- **GIVEN** the user sees the template recommendation area on the home page
-- **WHEN** the user clicks a template
-- **THEN** the system pre-fills the input with the template's prompt
-- **AND** the user may edit or generate directly
-
-#### Scenario: Remix a public project
-
-- **GIVEN** the user is browsing the project gallery
-- **WHEN** the user clicks "Remix" on a public project
-- **THEN** the system copies the project's prompt and code into a new session
-- **AND** the user can continue editing from there
-
----
-
-### Requirement: FR-07 Project Gallery
-
-**Priority**: P2
-
-The system SHALL provide a public project showcase page where visitors can browse
-and experience projects created by others.
-
-#### Scenario: Browse the gallery
-
-- **GIVEN** a user visits the gallery page
-- **WHEN** the page loads
-- **THEN** all public projects are displayed, sorted by popularity
-- **AND** projects can be filtered by tag or category
-- **AND** each project card supports click-to-preview without login
-
----
-
-### Requirement: FR-08 Iterative Editing
-
-**Priority**: P2
-
-The system SHALL allow users to modify a generated project through conversational
-instructions, with changes reflected in the preview.
-
-#### Scenario: Iterate on a project
-
-- **GIVEN** the user is on a project detail page
-- **WHEN** the user enters a modification instruction (e.g., "add dark mode toggle")
-- **THEN** the AI modifies the current code based on the instruction
-- **AND** the preview refreshes to show the updated result
-- **AND** the modification is recorded in the session messages
-
-#### Scenario: View source code
-
-- **GIVEN** the user is on a project detail page
-- **WHEN** the user clicks the "Code" tab
-- **THEN** the current source code is displayed with syntax highlighting
-- **AND** the code can be copied
-
-**API**: `POST /api/projects/:id/iterate`
-```
-Request:  { instruction: string, currentCode: string }
-Response: { projectId, status, updatedCode, message }
-```
-
----
-
-## Non-Functional Requirements
 
 ### Requirement: NFR-01 Performance
 
 **Priority**: P1
+
+The system SHALL meet the following performance targets:
 
 | Metric | Target |
 |--------|--------|
@@ -280,16 +50,29 @@ Response: { projectId, status, updatedCode, message }
 | API response time (non-generation) | < 500ms |
 | Concurrent users | ≥ 10 |
 
+#### Scenario: Generation streams within budget
+
+- **WHEN** the user submits a generation prompt
+- **THEN** the first streamed content arrives within the generation response-time budget
+- **AND** non-generation API calls respond within 500ms
+
 ---
 
 ### Requirement: NFR-02 Usability
 
 **Priority**: P1
 
+The system SHALL provide responsive feedback and recovery paths:
+
 - All interactive elements SHALL provide visual feedback within 200ms
 - Generation process SHALL display clear loading state and progress indicators
 - Error scenarios SHALL present friendly error messages with recovery paths
 - Application SHALL be basically usable on mobile (responsive layout)
+
+#### Scenario: Friendly failure recovery
+
+- **WHEN** an operation fails (generation, persistence, authentication)
+- **THEN** the user sees a clear error message with a retry or corrective path
 
 ---
 
@@ -297,10 +80,16 @@ Response: { projectId, status, updatedCode, message }
 
 **Priority**: P1
 
+The system SHALL isolate generated content and protect credentials:
+
 - User input SHALL be sanitized before rendering to prevent XSS
-- Generated code SHALL run inside iframe sandbox to isolate risk
-- API routes SHALL enforce rate limiting to prevent abuse
-- Sensitive credentials (API keys) SHALL only be used server-side, never stored in DB
+- Generated projects SHALL run inside the WebContainer sandbox to isolate risk
+- API routes SHALL enforce authentication; platform credentials SHALL only be used server-side, never stored in DB or delivered to the browser
+
+#### Scenario: No credential leakage
+
+- **WHEN** a user inspects any client-side asset, request, or response
+- **THEN** no platform credential or server-side secret is exposed
 
 ---
 
@@ -308,9 +97,16 @@ Response: { projectId, status, updatedCode, message }
 
 **Priority**: P0
 
-- Application SHALL support one-click deploy to Vercel
-- Environment variables SHALL manage API keys and sensitive config
-- Build artifact SHALL be < 50MB
+The application SHALL run as a local development deployment (single Node process,
+file-based SQLite database). Production/cloud deployment (including one-click Vercel
+deploy) is out of scope for this phase. Environment variables SHALL manage the
+platform LLM credential and sensitive config.
+
+#### Scenario: Local run
+
+- **WHEN** a developer starts the application locally
+- **THEN** the full product (workbench, auth, persistence, LLM gateway) is usable on localhost
+- **AND** no external hosting service is required
 
 ---
 
@@ -318,70 +114,13 @@ Response: { projectId, status, updatedCode, message }
 
 **Priority**: P2
 
-- Agent roles SHALL be pluggable via modular architecture
+The architecture SHALL keep extension points open:
+
 - LLM service layer SHALL be abstracted to support model switching
+- Platform customization SHALL be isolated from upstream fork code to keep merges manageable
 - Data layer SHALL support migration from SQLite to PostgreSQL
-- Template system SHALL support dynamic addition of templates
 
----
+#### Scenario: Default model is configurable
 
-## Data Models
-
-### Project
-
-| Field | Type | Description |
-|-------|------|-------------|
-| id | string | Unique identifier |
-| title | string | Project title (AI-generated) |
-| description | string | Project description |
-| prompt | string | Original user input |
-| code | string | Generated app code (HTML/CSS/JS) |
-| status | enum | `generating` / `completed` / `failed` |
-| createdAt | datetime | Creation time |
-| updatedAt | datetime | Last update time |
-| thumbnail | string? | Screenshot URL |
-| isPublic | boolean | Visibility flag |
-| viewCount | number | View counter |
-| tags | string[] | Tag list |
-
-### AgentMessage
-
-| Field | Type | Description |
-|-------|------|-------------|
-| id | string | Unique identifier |
-| sessionId | string | Parent session |
-| agentRole | enum | `pm` / `architect` / `engineer` / `system` / `user` |
-| content | string | Message content |
-| type | enum | `text` / `plan` / `code` / `error` |
-| timestamp | datetime | Message time |
-| metadata | object? | Agent-specific output (plan, architecture, code) |
-
-### Session
-
-| Field | Type | Description |
-|-------|------|-------------|
-| id | string | Unique identifier |
-| projectId | string | Parent project |
-| messages | AgentMessage[] | Message list |
-| status | enum | `active` / `completed` / `archived` |
-| createdAt | datetime | Creation time |
-
----
-
-## Feature Priority Matrix
-
-| ID | Feature | Priority | Phase | Effort |
-|----|---------|----------|-------|--------|
-| FR-01 | Application Generation | P0 | M2 | 3h |
-| FR-02 | Multi-Agent Collaboration | P1 | M4 | 1.5h |
-| FR-03 | Application Preview | P0 | M2 | (incl. in M2) |
-| FR-04 | Data Persistence | P0 | M1+M3 | 1h |
-| FR-05 | Project Management | P1 | M3 | (incl. in M3) |
-| FR-06 | Template System | P2 | M5 | 0.5h |
-| FR-07 | Project Gallery | P2 | M5 | 0.5h |
-| FR-08 | Iterative Editing | P2 | M5 | (incl. in M5) |
-| NFR-01 | Performance | P1 | M2-M6 | ongoing |
-| NFR-02 | Usability | P1 | M2-M6 | ongoing |
-| NFR-03 | Security | P1 | M2-M6 | ongoing |
-| NFR-04 | Deployability | P0 | M6 | 1h |
-| NFR-05 | Extensibility | P2 | M1 | (built-in) |
+- **WHEN** the platform default model is changed via environment configuration
+- **THEN** generation uses the newly configured model without code changes
