@@ -13,7 +13,8 @@ import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
-import { A2_ENABLE_PROVIDER_SWITCH } from '~/a2/config';
+import { A2_ENABLE_PROVIDER_SWITCH, A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
+import type { RequestStatus } from './ResponseStats';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
 import { BaseChat } from './BaseChat';
@@ -126,15 +127,19 @@ export const ChatImpl = memo(
     const [model, setModel] = useState(() => {
       const savedModel = Cookies.get('selectedModel');
 
-      // A2 (design D6 / LG-04, task 6.3): with provider switching off, ignore
-      // any stale cookie value and always use the platform default model.
+      /*
+       * A2 (design D6 / LG-04, task 6.3): with provider switching off, ignore
+       * any stale cookie value and always use the platform default model.
+       */
       return A2_ENABLE_PROVIDER_SWITCH ? savedModel || DEFAULT_MODEL : DEFAULT_MODEL;
     });
     const [provider, setProvider] = useState(() => {
       const savedProvider = Cookies.get('selectedProvider');
-      return (A2_ENABLE_PROVIDER_SWITCH
-        ? PROVIDER_LIST.find((p) => p.name === savedProvider) || DEFAULT_PROVIDER
-        : DEFAULT_PROVIDER) as ProviderInfo;
+      return (
+        A2_ENABLE_PROVIDER_SWITCH
+          ? PROVIDER_LIST.find((p) => p.name === savedProvider) || DEFAULT_PROVIDER
+          : DEFAULT_PROVIDER
+      ) as ProviderInfo;
     });
 
     const { showChat } = useStore(chatStore);
@@ -142,6 +147,18 @@ export const ChatImpl = memo(
     const [animationScope, animate] = useAnimate();
 
     const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+
+    /*
+     * chat-response-stats (design D2): staged request lifecycle derived from
+     * useChat signals; idle → submitting → waiting → streaming → finished/error.
+     */
+    const [requestStatus, setRequestStatus] = useState<RequestStatus>('idle');
+    const requestStartedAtRef = useRef<number | undefined>(undefined);
+
+    const beginRequestTracking = () => {
+      requestStartedAtRef.current = Date.now();
+      setRequestStatus('submitting');
+    };
 
     const { messages, isLoading, input, handleInputChange, setInput, stop, append, setMessages, reload } = useChat({
       api: '/api/chat',
@@ -152,11 +169,45 @@ export const ChatImpl = memo(
         contextOptimization: contextOptimizationEnabled,
       },
       sendExtraMessageFields: true,
+      onResponse: () => {
+        setRequestStatus('waiting');
+      },
       onError: (error) => {
         logger.error('Request failed\n\n', error);
         toast.error(
           'There was an error processing your request: ' + (error.message ? error.message : 'No details were returned'),
         );
+        setRequestStatus('error');
+
+        /*
+         * chat-response-stats (design D4 / task 4.3): the server threw before
+         * any annotation arrived, so record the failure on the assistant
+         * message client-side and persist it explicitly (the sampled save may
+         * skip it because the message count did not grow).
+         */
+        if (A2_ENABLE_RESPONSE_STATS) {
+          const errorMessage = error?.message || 'No details were returned';
+          const annotation = { type: 'status', value: { status: 'error', message: errorMessage, at: Date.now() } };
+          const last = messages[messages.length - 1];
+
+          let next;
+
+          if (last && last.role === 'assistant') {
+            next = messages.map((message, i) =>
+              i === messages.length - 1
+                ? { ...message, annotations: [...(message.annotations || []), annotation] }
+                : message,
+            );
+          } else {
+            next = [
+              ...messages,
+              { id: `${Date.now()}`, role: 'assistant' as const, content: '', annotations: [annotation] },
+            ] as Message[];
+          }
+
+          setMessages(next as Message[]);
+          storeMessageHistory(next as Message[]).catch((error) => toast.error(error.message));
+        }
       },
       onFinish: (message, response) => {
         const usage = response.usage;
@@ -167,11 +218,28 @@ export const ChatImpl = memo(
           // You can now use the usage data as needed
         }
 
+        setRequestStatus('finished');
         logger.debug('Finished streaming');
       },
       initialMessages,
       initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
     });
+
+    /*
+     * chat-response-stats (design D2): waiting → streaming as soon as visible
+     * assistant content starts growing (reasoning chunks do not render).
+     */
+    useEffect(() => {
+      if (requestStatus !== 'waiting') {
+        return;
+      }
+
+      const last = messages[messages.length - 1];
+
+      if (last && last.role === 'assistant' && (last.content?.length || 0) > 0) {
+        setRequestStatus('streaming');
+      }
+    }, [requestStatus, messages]);
     useEffect(() => {
       const prompt = searchParams.get('prompt');
 
@@ -180,6 +248,7 @@ export const ChatImpl = memo(
       if (prompt) {
         setSearchParams({});
         runAnimation();
+        beginRequestTracking();
         append({
           role: 'user',
           content: [
@@ -243,10 +312,12 @@ export const ChatImpl = memo(
         return;
       }
 
-      // A2: the #examples / #intro blocks below the prompt box were removed from
-      // the home page, so animate() them would never resolve and chatStarted
-      // would stay false (messages and workbench never render). Animate only
-      // elements that still exist.
+      /*
+       * A2: the #examples / #intro blocks below the prompt box were removed from
+       * the home page, so animate() them would never resolve and chatStarted
+       * would stay false (messages and workbench never render). Animate only
+       * elements that still exist.
+       */
       const animations = [animate('#intro', { opacity: 0, flex: 1 }, { duration: 0.2, ease: cubicEasingFn })];
 
       if (document.querySelector('#examples')) {
@@ -266,6 +337,12 @@ export const ChatImpl = memo(
       if (_input.length === 0 || isLoading) {
         return;
       }
+
+      /*
+       * chat-response-stats (task 3.1): mark the request start for the live
+       * waiting/streaming feedback; covers every downstream append/reload path.
+       */
+      beginRequestTracking();
 
       /**
        * @note (delm) Usually saving files shouldn't take long but it may take longer if there
@@ -471,6 +548,14 @@ export const ChatImpl = memo(
 
     const [messageRef, scrollRef] = useSnapScroll();
 
+    /*
+     * chat-response-stats (task 3.2): visible content length of the streaming
+     * assistant message, feeding the live token estimate.
+     */
+    const lastMessage = messages[messages.length - 1];
+    const streamingContentLength =
+      lastMessage && lastMessage.role === 'assistant' ? lastMessage.content?.length || 0 : 0;
+
     useEffect(() => {
       const storedApiKeys = Cookies.get('apiKeys');
 
@@ -543,6 +628,9 @@ export const ChatImpl = memo(
         setImageDataList={setImageDataList}
         actionAlert={actionAlert}
         clearAlert={() => workbenchStore.clearAlert()}
+        requestStatus={A2_ENABLE_RESPONSE_STATS ? requestStatus : undefined}
+        requestStartedAt={requestStartedAtRef.current}
+        streamingContentLength={streamingContentLength}
       />
     );
   },

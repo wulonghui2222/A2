@@ -1,5 +1,6 @@
 import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { createDataStream } from 'ai';
+import { A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
 import { getSessionUser } from '~/a2/session.server';
 import { MAX_RESPONSE_SEGMENTS, MAX_TOKENS } from '~/lib/.server/llm/constants';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
@@ -64,6 +65,18 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     totalTokens: 0,
   };
 
+  /*
+   * chat-response-stats (tasks 2.1/2.3): authoritative timing for the whole
+   * request, covering every continuation segment.
+   */
+  const startedAt = Date.now();
+  let segmentCount = 1;
+  let firstVisibleTokenAt: number | undefined;
+
+  const onFirstTextDelta = () => {
+    firstVisibleTokenAt ??= Date.now();
+  };
+
   try {
     const options: StreamingOptions = {
       toolChoice: 'none',
@@ -86,6 +99,21 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                   completionTokens: cumulativeUsage.completionTokens,
                   promptTokens: cumulativeUsage.promptTokens,
                   totalTokens: cumulativeUsage.totalTokens,
+
+                  /*
+                   * chat-response-stats (design D1): optional timing payload;
+                   * clients treat it as backward-compatible extra data.
+                   */
+                  ...(A2_ENABLE_RESPONSE_STATS
+                    ? {
+                        timing: {
+                          startedAt,
+                          endedAt: Date.now(),
+                          segmentCount,
+                          ...(firstVisibleTokenAt !== undefined ? { firstVisibleTokenAt } : {}),
+                        },
+                      }
+                    : {}),
                 },
               });
             },
@@ -114,6 +142,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
         logger.info(`Reached max token limit (${MAX_TOKENS}): Continuing message (${switchesLeft} switches left)`);
 
+        segmentCount += 1;
+
         messages.push({ role: 'assistant', content });
         messages.push({ role: 'user', content: CONTINUE_PROMPT });
 
@@ -126,13 +156,16 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           providerSettings,
           promptId,
           contextOptimization,
+          onFirstTextDelta,
         });
 
         stream.switchSource(
-          result.toDataStream((error: Error) => {
-            logger.error('streamText continuation data-stream error:', error);
+          result.toDataStream({
+            getErrorMessage: (error: unknown) => {
+              logger.error('streamText continuation error:', error);
 
-            return error.message;
+              return error instanceof Error ? error.message : String(error);
+            },
           }),
         );
 
@@ -149,13 +182,16 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       providerSettings,
       promptId,
       contextOptimization,
+      onFirstTextDelta,
     });
 
     stream.switchSource(
-      result.toDataStream((error: Error) => {
-        logger.error('streamText data-stream error:', error);
+      result.toDataStream({
+        getErrorMessage: (error: unknown) => {
+          logger.error('streamText error:', error);
 
-        return error.message;
+          return error instanceof Error ? error.message : String(error);
+        },
       }),
     );
 

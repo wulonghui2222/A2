@@ -2,6 +2,7 @@ import type { Message } from 'ai';
 import React, { Fragment } from 'react';
 import { classNames } from '~/utils/classNames';
 import { AssistantMessage } from './AssistantMessage';
+import { ResponseStats, type RequestStatus } from './ResponseStats';
 import { UserMessage } from './UserMessage';
 import { useLocation } from '@remix-run/react';
 import { db, chatId } from '~/lib/persistence/useChatHistory';
@@ -14,10 +15,22 @@ interface MessagesProps {
   className?: string;
   isStreaming?: boolean;
   messages?: Message[];
+
+  // chat-response-stats (design D2/D3): live request phase feedback.
+  requestStatus?: RequestStatus;
+  requestStartedAt?: number;
+  streamingContentLength?: number;
 }
 
 export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: MessagesProps, ref) => {
-  const { id, isStreaming = false, messages = [] } = props;
+  const {
+    id,
+    isStreaming = false,
+    messages = [],
+    requestStatus = 'idle',
+    requestStartedAt,
+    streamingContentLength,
+  } = props;
   const location = useLocation();
 
   const handleRewind = (messageId: string) => {
@@ -109,6 +122,11 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
         : null}
       {isStreaming && (
         <div className="text-center w-full text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-4xl mt-4"></div>
+      )}
+      {(requestStatus === 'waiting' || requestStatus === 'streaming') && (
+        <div className="text-center w-full mt-2">
+          <ResponseStats status={requestStatus} startedAt={requestStartedAt} contentLength={streamingContentLength} />
+        </div>
       )}
     </div>
   );

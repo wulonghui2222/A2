@@ -57,6 +57,11 @@ interface BaseChatProps {
   setImageDataList?: (dataList: string[]) => void;
   actionAlert?: ActionAlert;
   clearAlert?: () => void;
+
+  // chat-response-stats (design D2/D3)
+  requestStatus?: import('./ResponseStats').RequestStatus;
+  requestStartedAt?: number;
+  streamingContentLength?: number;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -90,6 +95,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       messages,
       actionAlert,
       clearAlert,
+      requestStatus,
+      requestStartedAt,
+      streamingContentLength,
     },
     ref,
   ) => {
@@ -336,6 +344,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                       className="flex flex-col w-full flex-1 max-w-chat pb-6 mx-auto z-1"
                       messages={messages}
                       isStreaming={isStreaming}
+                      requestStatus={requestStatus}
+                      requestStartedAt={requestStartedAt}
+                      streamingContentLength={streamingContentLength}
                     />
                   ) : null;
                 }}

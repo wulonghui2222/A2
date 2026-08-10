@@ -154,8 +154,24 @@ export async function streamText(props: {
   providerSettings?: Record<string, IProviderSetting>;
   promptId?: string;
   contextOptimization?: boolean;
+
+  /*
+   * chat-response-stats (task 2.2): invoked once, when the first visible
+   * content text-delta arrives (reasoning chunks are not text deltas).
+   */
+  onFirstTextDelta?: () => void;
 }) {
-  const { messages, env: serverEnv, options, apiKeys, files, providerSettings, promptId, contextOptimization } = props;
+  const {
+    messages,
+    env: serverEnv,
+    options,
+    apiKeys,
+    files,
+    providerSettings,
+    promptId,
+    contextOptimization,
+    onFirstTextDelta,
+  } = props;
 
   // console.log({serverEnv});
 
@@ -226,6 +242,8 @@ export async function streamText(props: {
 
   logger.info(`Sending llm call to ${provider.name} with model ${modelDetails.name}`);
 
+  let firstTextDeltaReported = false;
+
   return _streamText({
     model: provider.getModelInstance({
       model: currentModel,
@@ -237,5 +255,13 @@ export async function streamText(props: {
     maxTokens: dynamicMaxTokens,
     messages: convertToCoreMessages(processedMessages as any),
     ...options,
+    onChunk: async (event) => {
+      if (!firstTextDeltaReported && event.chunk.type === 'text-delta' && onFirstTextDelta) {
+        firstTextDeltaReported = true;
+        onFirstTextDelta();
+      }
+
+      await options?.onChunk?.(event);
+    },
   });
 }
