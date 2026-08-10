@@ -1,4 +1,5 @@
-﻿import { vitePlugin as remixVitePlugin } from '@remix-run/dev';
+﻿/// <reference types="vitest" />
+import { vitePlugin as remixVitePlugin } from '@remix-run/dev';
 import { a2NodeServer } from './app/a2/node-server';
 import UnoCSS from 'unocss/vite';
 import { defineConfig, type ViteDevServer } from 'vite';
@@ -79,6 +80,11 @@ export default defineConfig((config) => {
       chrome129IssuePlugin(),
       config.mode === 'production' && optimizeCssModules({ apply: 'build' }),
     ],
+    // Unit tests live next to sources in app/ only; keeps vitest away from
+    // tests/e2e (Playwright) and locked dirs like chrome-debug-profile.
+    test: {
+      include: ['app/**/*.spec.ts'],
+    },
     envPrefix: ["VITE_","OPENAI_LIKE_API_BASE_URL", "OLLAMA_API_BASE_URL", "LMSTUDIO_API_BASE_URL","TOGETHER_API_BASE_URL", "A2_ENABLE_RESPONSE_STATS"],
     css: {
       preprocessorOptions: {

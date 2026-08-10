@@ -72,6 +72,34 @@ git merge upstream/main
 
 冲突面集中在上表列出的少量文件；`app/a2/` 内无上游文件。
 
+## 测试
+
+三个入口（Windows PowerShell 与 Unix 均可运行）：
+
+| 命令 | 说明 |
+| --- | --- |
+| `pnpm test` | 单元测试（Vitest，扫描 `app/**/*.spec.ts`） |
+| `pnpm test:e2e` | E2E 测试（Playwright，`tests/e2e/*.spec.ts`） |
+| `pnpm test:all` | 顺序执行单元 + E2E（node 脚本，跨平台） |
+
+首次运行 E2E 需安装浏览器：`pnpm exec playwright install chromium`。
+
+- E2E 由 `playwright.config.ts` 的 `webServer` 自动启动 `pnpm dev`（等待
+  5173 就绪）；本地已开着 dev server 时直接复用（CI 上强制新起）。要对别的
+  实例跑测试，设置 `E2E_BASE_URL`（此时不再自启服务）。
+- LLM 全部由 Playwright 网络拦截打桩（`tests/e2e/fixtures/llm-stream.ts`），
+  不消耗真实配额。
+- 测试数据约定：E2E 使用随机后缀的唯一账号（`e2e…`），只读写自己创建的
+  项目；套件结束后 teardown 尽力删除本次创建的项目记录（用户行保留，前缀
+  便于人工清理）。单元测试使用 OS 临时目录里的独立 SQLite 库，不碰
+  `prisma/a2.db`。
+- 路由处理器的单测放在 `app/a2/route-tests/`：Remix 会把 `app/routes/` 下
+  的每个文件注册为路由，因此 `*.spec.ts` 不能与路由同目录。
+- Playwright 的产物与 HTML 报告写在 OS 临时目录下的
+  `a2-workbench-e2e/`（`artifacts/` 与 `report/`，见
+  `playwright.config.ts`）：部分机器上安全软件会拦截 Playwright 进程对
+  仓库目录的写入（EPERM），临时目录可稳定规避。
+
 ## 致谢
 
 本产品的交互主体来自 [bolt.diy](https://github.com/stackblitz-labs/bolt.diy)（StackBlitz，MIT License）。

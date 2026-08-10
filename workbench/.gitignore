@@ -36,6 +36,13 @@ prisma/a2.db-journal
 .wrangler
 _worker.bundle
 
+# A2 test-suite: Playwright artifacts, reports and teardown bookkeeping
+e2e-artifacts
+e2e-report
+e2e-accounts.jsonl
+test-results
+playwright-report
+
 Modelfile
 modelfiles
 
