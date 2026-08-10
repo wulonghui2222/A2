@@ -4,6 +4,9 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { WORKBENCH_ORIGIN, workbenchSrc } from "@/lib/workbench-config";
 import { WorkbenchClient } from "./WorkbenchClient";
+import { DeleteProjectButton } from "@/app/projects/[id]/DeleteProjectButton";
+import { PublicToggle } from "@/app/projects/[id]/PublicToggle";
+import { deleteProjectAction } from "@/app/projects/[id]/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +32,14 @@ export default async function WorkbenchPage({
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project || project.userId !== currentUserId) notFound();
 
-  // New project: hand the initial prompt over to the workbench (WE-03)
-  const isNew = project.status === "generating" && !project.files;
-  const src = workbenchSrc(project.id, isNew ? project.prompt : undefined);
+  // New project: hand the initial prompt over to the workbench (WE-03).
+  // Once the workbench reports its chat urlId, reloads resume that chat
+  // instead of starting a fresh one (which would regenerate the project).
+  const isNew = project.status === "generating" && !project.files && !project.workbenchChatId;
+  const src = workbenchSrc(project.id, {
+    chatId: project.workbenchChatId ?? undefined,
+    prompt: isNew ? project.prompt : undefined,
+  });
 
   return (
     <main className="h-screen flex flex-col bg-gray-50">
@@ -46,6 +54,17 @@ export default async function WorkbenchPage({
           <h1 className="text-sm font-semibold text-gray-900 truncate">
             {project.title}
           </h1>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <PublicToggle
+              projectId={project.id}
+              isPublic={project.isPublic}
+              status={project.status}
+            />
+            <DeleteProjectButton
+              projectId={project.id}
+              deleteAction={deleteProjectAction}
+            />
+          </div>
         </div>
       </header>
       <WorkbenchClient
@@ -54,6 +73,9 @@ export default async function WorkbenchPage({
         isNew={isNew}
         prompt={isNew ? project.prompt : undefined}
         workbenchOrigin={WORKBENCH_ORIGIN}
+        userId={currentUserId}
+        displayName={session.user.name ?? undefined}
+        projectTitle={project.title}
       />
     </main>
   );

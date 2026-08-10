@@ -27,9 +27,12 @@ interface Props {
   isNew: boolean;
   prompt?: string;
   workbenchOrigin: string;
+  userId: string;
+  displayName?: string;
+  projectTitle: string;
 }
 
-export function WorkbenchClient({ projectId, src, isNew, prompt, workbenchOrigin }: Props) {
+export function WorkbenchClient({ projectId, src, isNew, prompt, workbenchOrigin, userId, displayName, projectTitle }: Props) {
   const [phase, setPhase] = useState<Phase>("connecting");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -65,12 +68,13 @@ export function WorkbenchClient({ projectId, src, isNew, prompt, workbenchOrigin
           source: A2_SOURCE,
           type: "handshake",
           token,
-          project: { id: projectId, prompt, isNew },
+          project: { id: projectId, prompt, isNew, title: projectTitle },
+          user: { id: userId, displayName: displayName ?? "" },
         },
         { targetOrigin: workbenchOrigin }
       );
     },
-    [projectId, prompt, isNew, workbenchOrigin]
+    [projectId, prompt, isNew, workbenchOrigin, userId, displayName, projectTitle]
   );
 
   // Handshake is driven by iframe (re)loads rather than mount: every load of
@@ -117,6 +121,8 @@ export function WorkbenchClient({ projectId, src, isNew, prompt, workbenchOrigin
         token?: string;
         ok?: boolean;
         files?: unknown;
+        urlId?: string;
+        messages?: Array<{ id: string; role: string; content: string }>;
       };
       if (data?.source !== A2_ACK_SOURCE) return;
 
@@ -124,6 +130,47 @@ export function WorkbenchClient({ projectId, src, isNew, prompt, workbenchOrigin
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
         if (timeoutTimerRef.current) clearTimeout(timeoutTimerRef.current);
         setPhase("ready");
+        return;
+      }
+
+      if (data.type === "chat-history" && data.messages) {
+        // Mirror bolt chat history into A2 Session/AgentMessage (WE-07).
+        const iframeWin = iframeRef.current?.contentWindow;
+        const ack = () => {
+          iframeWin?.postMessage(
+            { source: A2_SOURCE, type: "chat-history-ack", token: data.token },
+            { targetOrigin: workbenchOrigin }
+          );
+        };
+        try {
+          const freshToken = await issueToken();
+          if (!freshToken) return;
+          await fetch("/api/workbench/chat-history", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId, token: freshToken, messages: data.messages }),
+          });
+          ack();
+        } catch {
+          // best effort: history will be re-mirrored on the next save/turn
+        }
+        return;
+      }
+
+      if (data.type === "chat-url" && data.urlId) {
+        // Persist the bolt chat urlId so reloads resume this chat instead
+        // of starting a fresh one (which would regenerate the project).
+        try {
+          const freshToken = await issueToken();
+          if (!freshToken) return;
+          await fetch("/api/workbench/chat-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId, token: freshToken, urlId: data.urlId }),
+          });
+        } catch {
+          // best effort: worst case the next load starts a fresh chat again
+        }
         return;
       }
 

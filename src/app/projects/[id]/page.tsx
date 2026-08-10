@@ -1,11 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { ProjectDetailShell } from "./ProjectDetailShell";
-import { DeleteProjectButton } from "./DeleteProjectButton";
-import { PublicToggle } from "./PublicToggle";
-import { deleteProjectAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +33,13 @@ export default async function ProjectDetailPage({
   const isOwner = currentUserId !== undefined && project.userId === currentUserId;
   const isPublic = project.isPublic;
 
+  // Owner is redirected to the live workbench (design D4 / FR-05)
+  if (isOwner) {
+    redirect(`/workbench/${id}`);
+  }
+
   // Non-owner can only view public projects
-  if (!isOwner && !isPublic) {
+  if (!isPublic) {
     notFound();
   }
 
@@ -97,19 +99,6 @@ export default async function ProjectDetailPage({
             </span>
           </div>
 
-          {isOwner && (
-            <div className="flex items-center gap-2 shrink-0">
-              <PublicToggle
-                projectId={id}
-                isPublic={project.isPublic}
-                status={project.status}
-              />
-              <DeleteProjectButton
-                projectId={id}
-                deleteAction={deleteProjectAction}
-              />
-            </div>
-          )}
         </div>
       </header>
 
@@ -127,6 +116,7 @@ export default async function ProjectDetailPage({
         messages={messages}
         isOwner={isOwner}
       />
+
     </main>
   );
 }

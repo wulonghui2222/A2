@@ -22,6 +22,7 @@ model Project {
   prompt      String
   code        String   @default("")
   files       String?  // JSON-serialized dist file tree saved from the workbench
+  workbenchChatId String? // bolt fork chat urlId, so reloads resume the same chat
   status      String   @default("generating") // generating | completed | failed
   isPublic    Boolean  @default(false)
   viewCount   Int      @default(0)

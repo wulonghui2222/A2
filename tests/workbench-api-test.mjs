@@ -7,7 +7,8 @@
  * Covers:
  *   POST /api/projects          — create project shell (FR-01 / D5)
  *   POST /api/workbench/token   — one-time seam token (WE-02 / D3)
- *   POST /api/workbench/artifact — artifact persistence (WE-04 / D4)
+ *   POST /api/workbench/artifact  — artifact persistence (WE-04 / D4)
+ *   POST /api/workbench/chat-history — chat history mirror (WE-07 / D3)
  * including anonymous / non-owner / token-misuse rejection paths.
  */
 
@@ -68,6 +69,11 @@ const SAMPLE_FILES = {
   "index.html": { file: { contents: "<!DOCTYPE html><h1>workbench save</h1>" } },
   assets: { directory: { "app.js": { file: { contents: "console.log(1)" } } } },
 };
+
+const SAMPLE_MESSAGES = [
+  { id: "msg-1", role: "user", content: "Build a pomodoro timer app" },
+  { id: "msg-2", role: "assistant", content: "Sure! Let me create a timer app for you." },
+];
 
 async function run() {
   console.log("\n=== Workbench API Tests ===\n");
@@ -163,8 +169,68 @@ async function run() {
   const { token: token2 } = await tok2Res.json();
   assert("Re-issue token", tok2Res.status === 200 && !!token2 && token2 !== token);
 
-  // 5. Cleanup
-  console.log("\n5. Cleanup");
+  // 5. POST /api/workbench/chat-history
+  console.log("\n5. POST /api/workbench/chat-history");
+
+  const badChatTokRes = await fetch(`${BASE}/api/workbench/chat-history`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId, token: "no-such-token", messages: SAMPLE_MESSAGES }),
+  });
+  assert("Invalid token -> 403", badChatTokRes.status === 403, `status=${badChatTokRes.status}`);
+
+  const chatRes = await fetch(`${BASE}/api/workbench/chat-history`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId, token: token2, messages: SAMPLE_MESSAGES }),
+  });
+  const chatBody = await chatRes.json();
+  assert("Owner chat-history -> 200 { ok }",
+    chatRes.status === 200 && chatBody.ok === true,
+    `status=${chatRes.status} body=${JSON.stringify(chatBody)}`);
+
+  const dbSession = await prisma.session.findFirst({ where: { projectId } });
+  assert("DB: session created", !!dbSession);
+  const dbMessages = dbSession
+    ? await prisma.agentMessage.findMany({ where: { sessionId: dbSession.id } })
+    : [];
+  assert("DB: messages persisted",
+    dbMessages.length === SAMPLE_MESSAGES.length, `count=${dbMessages.length}`);
+  assert("DB: message roles match",
+    dbMessages.length > 0 && dbMessages[0].agentRole === SAMPLE_MESSAGES[0].role,
+    `role=${dbMessages[0]?.agentRole}`);
+
+  // Token single-use (reuse -> 403)
+  const reuseChatRes = await fetch(`${BASE}/api/workbench/chat-history`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId, token: token2, messages: SAMPLE_MESSAGES }),
+  });
+  assert("Token single-use (reuse -> 403)", reuseChatRes.status === 403, `status=${reuseChatRes.status}`);
+
+  // Wrong-project token -> 403
+  const tok3Res = await fetch(`${BASE}/api/workbench/token`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId }),
+  });
+  const { token: token3 } = await tok3Res.json();
+  const wrongProjRes = await fetch(`${BASE}/api/workbench/chat-history`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId: "nonexistent-id", token: token3, messages: SAMPLE_MESSAGES }),
+  });
+  assert("Wrong-project token -> 403", wrongProjRes.status === 403, `status=${wrongProjRes.status}`);
+
+  // Non-owner with valid token -> 404
+  const tok4Res = await fetch(`${BASE}/api/workbench/token`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie1 },
+    body: JSON.stringify({ projectId }),
+  });
+  const { token: token4 } = await tok4Res.json();
+  const crossChatRes = await fetch(`${BASE}/api/workbench/chat-history`, {
+    method: "POST", headers: { "Content-Type": "application/json", cookie: cookie2 },
+    body: JSON.stringify({ projectId, token: token4, messages: SAMPLE_MESSAGES }),
+  });
+  assert("Non-owner chat-history -> 404", crossChatRes.status === 404, `status=${crossChatRes.status}`);
+
+  // 6. Cleanup
+  console.log("\n6. Cleanup");
   const delRes = await fetch(`${BASE}/api/projects/${projectId}`, { method: "DELETE", headers: { cookie: cookie1 } });
   assert("Delete test project", delRes.status === 200 || delRes.status === 204);
 

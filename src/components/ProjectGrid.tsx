@@ -15,6 +15,8 @@ interface ProjectCard {
 export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState(projects);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const filtered = items.filter(
     (p) =>
@@ -26,6 +28,19 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
     const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
     if (res.ok || res.status === 204) {
       setItems((prev) => prev.filter((p) => p.id !== id));
+    }
+  };
+
+  const onRename = async (id: string, title: string) => {
+    const res = await fetch(`/api/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    if (res.ok) {
+      setItems((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, title } : p)),
+      );
     }
   };
 
@@ -83,18 +98,55 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
 
               {/* Delete button — absolute top-right, hover-visible */}
               <div
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 flex items-center gap-1"
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <ConfirmPopover
-                  triggerLabel="🗑"
-                  triggerClassName="w-8 h-8 rounded-lg bg-white/90 hover:bg-red-50 border border-gray-200 text-sm flex items-center justify-center transition-colors shadow-sm"
-                  confirmLabel="删除"
-                  cancelLabel="取消"
-                  message="确定删除此项目？此操作不可撤销。"
-                  onConfirm={() => onDelete(project.id)}
-                />
+                {renamingId === project.id ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (renameValue.trim()) {
+                        onRename(project.id, renameValue.trim());
+                      }
+                      setRenamingId(null);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => e.key === "Escape" && setRenamingId(null)}
+                      className="w-28 text-sm rounded-lg border border-gray-200 px-2 py-1"
+                      placeholder="项目名称"
+                    />
+                    <button type="submit" className="ml-1 text-xs px-2 py-1 rounded bg-indigo-600 text-white">确定</button>
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRenamingId(project.id);
+                        setRenameValue(project.title);
+                      }}
+                      className="w-8 h-8 rounded-lg bg-white/90 hover:bg-indigo-50 border border-gray-200 text-sm flex items-center justify-center transition-colors shadow-sm"
+                      title="重命名"
+                    >
+                      ✏
+                    </button>
+                    <ConfirmPopover
+                      triggerLabel="🗑"
+                      triggerClassName="w-8 h-8 rounded-lg bg-white/90 hover:bg-red-50 border border-gray-200 text-sm flex items-center justify-center transition-colors shadow-sm"
+                      confirmLabel="删除"
+                      cancelLabel="取消"
+                      message="确定删除此项目？此操作不可撤销。"
+                      onConfirm={() => onDelete(project.id)}
+                    />
+                  </>
+                )}
               </div>
             </div>
           ))}

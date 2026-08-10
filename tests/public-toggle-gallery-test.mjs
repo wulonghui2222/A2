@@ -197,17 +197,18 @@ async function run() {
   console.log("\n4. viewCount tests");
 
   // Project is public at this point (from step 3.5)
-  const initPageRes = await fetch(`${BASE}/projects/${projectId}`, { headers: { cookie } });
+  // Visit as anonymous viewer — owner is redirected to /workbench (FR-05)
+  const initPageRes = await fetch(`${BASE}/projects/${projectId}`);
   const initHtml = await initPageRes.text();
   const initViews = extractViewCount(initHtml);
   assert("viewCount visible on detail page", initViews !== null, `extracted=${initViews}`);
 
   // Visit again to increment, then check
   await new Promise((r) => setTimeout(r, 1000));
-  await fetch(`${BASE}/projects/${projectId}`, { headers: { cookie } });
+  await fetch(`${BASE}/projects/${projectId}`);
   await new Promise((r) => setTimeout(r, 1000));
 
-  const checkRes = await fetch(`${BASE}/projects/${projectId}`, { headers: { cookie } });
+  const checkRes = await fetch(`${BASE}/projects/${projectId}`);
   const checkHtml = await checkRes.text();
   const newViews = extractViewCount(checkHtml);
   assert(`viewCount incremented (${initViews} -> ${newViews})`,
@@ -243,7 +244,7 @@ async function run() {
   // 5.4 Owner page has toggle
   const ownerRes = await fetch(`${BASE}/projects/${projectId}`, { headers: { cookie } });
   const ownerHtml = await ownerRes.text();
-  assert("Owner page has toggle", ownerHtml.includes('role="switch"'));
+  assert("Owner redirected to workbench with toggle", ownerHtml.includes('role="switch"'));
 
   // 6. Gallery page tests
   console.log("\n6. Gallery page tests");

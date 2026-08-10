@@ -7,6 +7,7 @@ const ROLE_META: Record<string, { label: string; avatar: string; color: string }
   architect: { label: "Architect Agent", avatar: "🏗️", color: "bg-purple-100 text-purple-800" },
   engineer: { label: "Engineer Agent", avatar: "⚙️", color: "bg-amber-100 text-amber-800" },
   system: { label: "System", avatar: "🤖", color: "bg-gray-100 text-gray-700" },
+  assistant: { label: "助手", avatar: "🤖", color: "bg-indigo-100 text-indigo-800" },
   user: { label: "You", avatar: "👤", color: "bg-emerald-100 text-emerald-800" },
 };
 
