@@ -18,6 +18,7 @@ import { description } from '~/lib/persistence';
 import Cookies from 'js-cookie';
 import { createSampler } from '~/utils/sampler';
 import type { ActionAlert } from '~/types/actions';
+import { WORK_DIR } from '~/utils/constants';
 
 export interface ArtifactState {
   id: string;
@@ -128,6 +129,41 @@ export class WorkbenchStore {
           break;
         }
       }
+    }
+  }
+
+  /**
+   * restore-workbench-snapshot (D3): write a persisted file snapshot into the
+   * WebContainer so the Files panel populates when opening a historical project.
+   * Directories are created recursively; files are written in parallel.
+   * Failures are logged but never thrown — snapshot restore must not block
+   * the Chat component from rendering.
+   */
+  async restoreFiles(snapshot: Record<string, string>): Promise<void> {
+    const entries = Object.entries(snapshot);
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    try {
+      const wc = await webcontainer;
+
+      await Promise.all(
+        entries.map(async ([relativePath, content]) => {
+          try {
+            const fullPath = nodePath.join(WORK_DIR, relativePath);
+            const dir = nodePath.dirname(fullPath);
+
+            await wc.fs.mkdir(dir, { recursive: true });
+            await wc.fs.writeFile(fullPath, content);
+          } catch (err) {
+            console.warn(`Failed to restore file: ${relativePath}`, err);
+          }
+        }),
+      );
+    } catch (err) {
+      console.warn('Failed to restore file snapshot', err);
     }
   }
 

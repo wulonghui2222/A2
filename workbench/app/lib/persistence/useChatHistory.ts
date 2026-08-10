@@ -20,6 +20,7 @@ export interface ChatHistoryItem {
   urlId?: string;
   description?: string;
   messages: Message[];
+  fileSnapshot?: string;
   timestamp: string;
 }
 
@@ -54,12 +55,29 @@ export function useChatHistory() {
 
     if (mixedId) {
       getMessages(db, mixedId)
-        .then((storedMessages) => {
+        .then(async (storedMessages) => {
           if (storedMessages && storedMessages.messages.length > 0) {
             const rewindId = searchParams.get('rewindTo');
             const filteredMessages = rewindId
               ? storedMessages.messages.slice(0, storedMessages.messages.findIndex((m) => m.id === rewindId) + 1)
               : storedMessages.messages;
+
+            /*
+             * restore-workbench-snapshot (D2): write the persisted file tree
+             * back into WebContainer so the Files panel is populated before
+             * the Chat component renders.
+             */
+            if (storedMessages.fileSnapshot) {
+              try {
+                const snapshot = JSON.parse(storedMessages.fileSnapshot);
+
+                if (snapshot && typeof snapshot === 'object' && Object.keys(snapshot).length > 0) {
+                  await workbenchStore.restoreFiles(snapshot);
+                }
+              } catch (err) {
+                console.warn('Failed to restore file snapshot', err);
+              }
+            }
 
             setInitialMessages(filteredMessages);
             setUrlId(storedMessages.urlId);
