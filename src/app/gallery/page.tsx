@@ -60,7 +60,7 @@ export default async function GalleryPage() {
             <span className="font-semibold text-gray-900">Atoms</span>
           </Link>
           <nav className="flex items-center gap-4">
-            <span className="text-sm text-indigo-600 font-medium">项目画廊</span>
+            <span className="text-sm text-indigo-600 font-medium">项目广场</span>
             <Link
               href="/my-projects"
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
@@ -78,7 +78,7 @@ export default async function GalleryPage() {
       </header>
 
       <section className="max-w-6xl mx-auto px-6 py-12">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">项目画廊</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">项目广场</h1>
         <p className="text-gray-500 mb-8">
           浏览社区公开的项目，共 {projects.length} 个
         </p>

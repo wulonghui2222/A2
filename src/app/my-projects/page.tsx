@@ -33,7 +33,7 @@ export default async function MyProjectsPage() {
               href="/gallery"
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
-              项目画廊
+              项目广场
             </Link>
             <span className="text-sm text-indigo-600 font-medium">我的项目</span>
             <Link

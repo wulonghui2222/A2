@@ -253,7 +253,7 @@ async function run() {
   const galleryHtml = await galleryRes.text();
   assert("Gallery shows project title", galleryHtml.includes("Renamed Test Project"));
   assert("Gallery shows second project", galleryHtml.includes("Another Public App"));
-  assert("Gallery has section header", galleryHtml.includes("项目画廊"));
+  assert("Gallery has section header", galleryHtml.includes("项目广场"));
 
   // 7. Cleanup
   console.log("\n7. Cleanup");

@@ -3,9 +3,12 @@ schema: spec-driven
 context: |
   Project: A2 Atoms Demo — AI Agent 平台，用户通过自然语言描述需求，
   AI Agent 团队自动完成从需求分析到代码生成、部署上线的全流程。
-  Tech stack: Next.js 15 (App Router), Tailwind CSS, shadcn/ui,
+  Code layout:
+  - /workbench — 主要代码目录（基于 bolt.new fork 的工作台），所有功能开发和修改都在此进行。
+  - /src — 废弃代码目录（早期 Next.js 原型），不再维护，不应修改或引用。
+  Tech stack: Remix (Vite) + Cloudflare Workers, Tailwind CSS / UnoCSS,
   Prisma ORM (SQLite), Zustand, Shiki, OpenAI/Anthropic/Alibaba Bailian API
-  Deploy target: Vercel
+  Deploy target: Cloudflare Pages (workbench), Vercel (legacy /src)
   Language: TypeScript (primary), Chinese (UI copy)
   Naming convention (terminology):
   - Chinese UI copy SHALL use "项目" (not "应用") to refer to a user's generated artifact.

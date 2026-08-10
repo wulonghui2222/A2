@@ -46,7 +46,7 @@ export default function HomePage() {
               href="/gallery"
               className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
             >
-              项目画廊
+              项目广场
             </Link>
             <Link
               href="/my-projects"
@@ -60,7 +60,7 @@ export default function HomePage() {
 
       {/* Hero Section */}
       {!isGenerating && messages.length === 0 && (
-        <section className="max-w-6xl mx-auto px-6 pt-24 pb-16 text-center">
+        <section className="max-w-6xl mx-auto px-6 pt-12 pb-16 text-center">
           <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
             用AI构建你的下一个项目
           </h1>

@@ -68,14 +68,14 @@ export default async function ProjectDetailPage({
   return (
     <main className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-10">
+      <header className="border-b border-gray-200 bg-white sticky top-14 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <Link
               href={isOwner ? "/my-projects" : "/gallery"}
               className="text-sm text-gray-500 hover:text-gray-800 transition-colors shrink-0"
             >
-              ← {isOwner ? "我的项目" : "项目画廊"}
+              ← {isOwner ? "我的项目" : "项目广场"}
             </Link>
             <h1 className="text-lg font-semibold text-gray-900 truncate">
               {project.title}
