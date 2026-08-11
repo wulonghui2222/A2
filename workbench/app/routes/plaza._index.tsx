@@ -1,22 +1,26 @@
 import { json, type LoaderFunctionArgs } from '@remix-run/cloudflare';
 import { useLoaderData } from '@remix-run/react';
+import { useState } from 'react';
 import { prisma } from '~/a2/db.server';
 import { getSessionUser } from '~/a2/session.server';
 import { Header } from '~/components/header/Header';
 
 /*
  * A2 project-plaza (PL-01): public plaza listing. No auth required; lists all
- * public projects sorted by viewCount desc. Cards use a placeholder thumbnail
- * (no screenshot pipeline, see proposal Non-Goals).
+ * public projects sorted by viewCount desc. Cards show the captured runtime
+ * screenshot when one exists (plaza-card-thumbnails PL-04), falling back to
+ * the placeholder image.
  *
  * Lives under the `plaza.tsx` layout route (Remix flat-file nesting); the
  * detail view is `plaza.$urlId.tsx`.
  */
 
 interface PlazaProject {
+  id: string;
   urlId: string;
   description: string | null;
   viewCount: number;
+  hasThumbnail: boolean;
 }
 
 export const meta = () => {
@@ -32,10 +36,16 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const projects = await prisma.project.findMany({
     where: { isPublic: true },
     orderBy: { viewCount: 'desc' },
-    select: { urlId: true, description: true, viewCount: true },
+    select: { id: true, urlId: true, description: true, viewCount: true, thumbnail: true },
   });
 
-  return json({ username: user?.username, projects: projects as PlazaProject[] });
+  /*
+   * D4: only a presence flag goes into the list payload; the base64 JPEG is
+   * served separately by the thumbnail resource route (lazy <img>).
+   */
+  const mapped = projects.map(({ thumbnail, ...rest }) => ({ ...rest, hasThumbnail: Boolean(thumbnail) }));
+
+  return json({ username: user?.username, projects: mapped as PlazaProject[] });
 }
 
 export default function PlazaIndex() {
@@ -69,9 +79,13 @@ export default function PlazaIndex() {
                 href={`/plaza/${project.urlId}`}
                 className="group rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 hover:border-bolt-elements-item-contentAccent transition-colors block p-3"
               >
-                {/* Placeholder thumbnail: no screenshot pipeline in this phase. */}
-                <div className="aspect-video rounded-md bg-gradient-to-br from-bolt-elements-background-depth-3 to-bolt-elements-background-depth-1 flex items-center justify-center mb-3">
-                  <div className="i-ph:rocket-launch text-3xl text-bolt-elements-textTertiary" />
+                {/* Captured screenshot when available; placeholder fallback (PL-01). */}
+                <div className="aspect-video rounded-md overflow-hidden bg-gradient-to-br from-bolt-elements-background-depth-3 to-bolt-elements-background-depth-1 flex items-center justify-center mb-3">
+                  {project.hasThumbnail ? (
+                    <CardThumbnail projectId={project.id} alt={project.description || '未命名项目'} />
+                  ) : (
+                    <div className="i-ph:rocket-launch text-3xl text-bolt-elements-textTertiary" />
+                  )}
                 </div>
                 <div className="truncate text-sm font-medium text-bolt-elements-textPrimary group-hover:text-bolt-elements-item-contentAccent transition-colors">
                   {project.description || '未命名项目'}
@@ -83,5 +97,28 @@ export default function PlazaIndex() {
         )}
       </div>
     </div>
+  );
+}
+
+/*
+ * A2 plaza-card-thumbnails (task 6.1): lazy-loaded capture with a placeholder
+ * fallback. onError covers stale flags (thumbnail deleted / upload raced) so
+ * the card never shows a broken image.
+ */
+function CardThumbnail({ projectId, alt }: { projectId: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return <div className="i-ph:rocket-launch text-3xl text-bolt-elements-textTertiary" />;
+  }
+
+  return (
+    <img
+      src={`/api/a2/projects/${projectId}/thumbnail`}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="h-full w-full object-cover object-top"
+    />
   );
 }

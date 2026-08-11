@@ -36,6 +36,9 @@ model Project {
   viewCount    Int      @default(0)
   fileSnapshot String?
 
+  // A2 plaza-card-thumbnails (D3): base64 JPEG captured on publish (<=200KB).
+  thumbnail String?
+
   @@index([userId, updatedAt])
   @@index([isPublic, viewCount])
 }

@@ -68,6 +68,12 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     description: project.description,
     messages,
     fileSnapshot: (project as any).fileSnapshot ?? null,
+
+    /*
+     * A2 plaza-card-thumbnails (D7): the workbench publish button needs the
+     * current visibility to render its initial state.
+     */
+    isPublic: (project as any).isPublic ?? false,
     timestamp: project.updatedAt.toISOString(),
   });
 }

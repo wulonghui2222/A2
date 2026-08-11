@@ -71,61 +71,6 @@ function formatTime(iso: string): string {
   });
 }
 
-/*
- * A2 project-plaza (D6, task 5.2 / WB-10): per-card public visibility toggle.
- * Posts JSON to the visibility resource route; Remix revalidates the list so
- * plaza visibility reflects immediately. Publishing without a snapshot returns
- * a Chinese guidance error from the route, shown inline (WB-10).
- */
-function VisibilityToggle({ project }: { project: ProjectCard }) {
-  const fetcher = useFetcher<{ id?: string; isPublic?: boolean; error?: string }>();
-  const pending = fetcher.state !== 'idle';
-  const isPublic = fetcher.data?.isPublic ?? project.isPublic;
-
-  const toggle = () => {
-    fetcher.submit(
-      { isPublic: !isPublic },
-      {
-        action: `/api/a2/projects/${project.id}/visibility`,
-        method: 'POST',
-        encType: 'application/json',
-      },
-    );
-  };
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={toggle}
-          disabled={pending}
-          title="广场展示的是最近一次保存的版本"
-          className={`flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors disabled:opacity-60 ${
-            isPublic
-              ? 'border-bolt-elements-button-secondary-border bg-bolt-elements-button-secondary-background text-bolt-elements-button-secondary-text hover:opacity-90'
-              : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-contentAccent'
-          }`}
-        >
-          <div className={`text-sm ${isPublic ? 'i-ph:globe-simple' : 'i-ph:upload-simple'}`} />
-          {pending ? '处理中…' : isPublic ? '取消公开' : '公开到广场'}
-        </button>
-        {isPublic && (
-          <span className="flex items-center gap-1 text-xs text-bolt-elements-icon-success">
-            <div className="i-ph:check-circle text-sm" />
-            已公开
-          </span>
-        )}
-      </div>
-      {fetcher.data?.error ? (
-        <p className="text-xs text-bolt-elements-icon-error">{fetcher.data.error}</p>
-      ) : (
-        <p className="text-xs text-bolt-elements-textTertiary">广场展示的是最近一次保存的版本</p>
-      )}
-    </div>
-  );
-}
-
 export default function MyProjects() {
   const { projects } = useLoaderData<{ username: string; projects: ProjectCard[] }>();
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
@@ -195,9 +140,14 @@ export default function MyProjects() {
                   <div className="i-ph:trash text-sm" />
                   删除
                 </button>
-                <div className="border-t border-bolt-elements-borderColor px-3 py-2">
-                  <VisibilityToggle project={project} />
-                </div>
+                {/* A2 plaza-card-thumbnails (D7): publish moved to the workbench
+                    header; the list only shows a read-only status line. */}
+                {project.isPublic && (
+                  <div className="flex items-center gap-1 border-t border-bolt-elements-borderColor px-3 py-2 text-xs text-bolt-elements-icon-success">
+                    <div className="i-ph:check-circle text-sm" />
+                    已公开到广场
+                  </div>
+                )}
               </div>
             ))}
           </div>
