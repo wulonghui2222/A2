@@ -148,7 +148,16 @@ export default function MyProjects() {
     <div className="flex flex-col h-full w-full bg-bolt-elements-background-depth-1">
       <Header />
       <div className="flex-1 overflow-auto p-6">
-        <h1 className="text-xl font-semibold text-bolt-elements-textPrimary mb-4">我的项目</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-xl font-semibold text-bolt-elements-textPrimary">我的项目</h1>
+          <a
+            href="/"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-bolt-elements-button-primary-background px-4 py-2 text-sm text-bolt-elements-button-primary-text hover:bg-bolt-elements-button-primary-backgroundHover transition-colors"
+          >
+            <div className="i-ph:plus text-base" />
+            新建项目
+          </a>
+        </div>
 
         {projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-bolt-elements-textSecondary">

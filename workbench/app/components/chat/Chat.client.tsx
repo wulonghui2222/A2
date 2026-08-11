@@ -222,7 +222,13 @@ export const ChatImpl = memo(
         logger.debug('Finished streaming');
       },
       initialMessages,
-      initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
+      /*
+       * A2 UX: pre-fill the prompt with a sensible default so first-time users
+       * land on a ready-to-send example instead of an empty box. Only applies
+       * to new chats (no existing messages); cached drafts still win so a page
+       * refresh never clobbers in-progress typing.
+       */
+      initialInput: Cookies.get(PROMPT_COOKIE_KEY) || (initialMessages.length === 0 ? '创建一个漂亮的个人介绍网页' : ''),
     });
 
     /*
