@@ -42,6 +42,12 @@ export function Header() {
         >
           项目广场
         </a>
+        <a
+          href="/island"
+          className="px-4 py-1.5 rounded-md text-[15px] text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive transition-colors"
+        >
+          组件岛
+        </a>
       </nav>
 
       {chat.started && ( // Display ChatDescription and HeaderActionButtons only when the chat has started.
