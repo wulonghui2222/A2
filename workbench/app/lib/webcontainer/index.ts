@@ -1,4 +1,5 @@
 import { WebContainer } from '@webcontainer/api';
+import { generationTelemetry } from '~/a2/telemetry';
 import { WORK_DIR_NAME } from '~/utils/constants';
 import { cleanStackTrace } from '~/utils/stacktrace';
 
@@ -19,6 +20,9 @@ export let webcontainer: Promise<WebContainer> = new Promise(() => {
 });
 
 if (!import.meta.env.SSR) {
+  // add-generation-telemetry (task 3.2): WebContainer boot duration
+  const bootStartedAt = Date.now();
+
   webcontainer =
     import.meta.hot?.data.webcontainer ??
     Promise.resolve()
@@ -29,6 +33,7 @@ if (!import.meta.env.SSR) {
         });
       })
       .then(async (webcontainer) => {
+        generationTelemetry.webContainerBoot(Date.now() - bootStartedAt);
         webcontainerContext.loaded = true;
 
         const { workbenchStore } = await import('~/lib/stores/workbench');

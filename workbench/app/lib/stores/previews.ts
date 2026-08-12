@@ -1,5 +1,6 @@
 import type { WebContainer } from '@webcontainer/api';
 import { atom } from 'nanostores';
+import { generationTelemetry } from '~/a2/telemetry';
 
 export interface PreviewInfo {
   port: number;
@@ -23,6 +24,9 @@ export class PreviewsStore {
     const webcontainer = await this.#webcontainer;
 
     webcontainer.on('port', (port, type, url) => {
+      // add-generation-telemetry (task 3.1): pair the port open event with the latest start action
+      generationTelemetry.previewPortChanged(port, type === 'open');
+
       let previewInfo = this.#availablePreviews.get(port);
 
       if (type === 'close' && previewInfo) {

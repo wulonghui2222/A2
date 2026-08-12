@@ -2,6 +2,7 @@ import { WebContainer } from '@webcontainer/api';
 import { atom, map, type MapStore } from 'nanostores';
 import * as nodePath from 'node:path';
 import type { ActionAlert, BoltAction } from '~/types/actions';
+import { generationTelemetry } from '~/a2/telemetry';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
@@ -126,11 +127,19 @@ export class ActionRunner {
       return; // No return value here
     }
 
+    // add-generation-telemetry (task 2.1): action start tap (deduped by actionId)
+    generationTelemetry.recordActionStart(
+      data.messageId,
+      actionId,
+      action.type,
+      action.type === 'file' ? undefined : action.content,
+    );
+
     this.#updateAction(actionId, { ...action, ...data.action, executed: !isStreaming });
 
     this.#currentExecutionPromise = this.#currentExecutionPromise
       .then(() => {
-        return this.#executeAction(actionId, isStreaming);
+        return this.#executeAction(actionId, isStreaming, data.messageId);
       })
       .catch((error) => {
         console.error('Action failed:', error);
@@ -141,15 +150,17 @@ export class ActionRunner {
     return;
   }
 
-  async #executeAction(actionId: string, isStreaming: boolean = false) {
+  async #executeAction(actionId: string, isStreaming: boolean = false, messageId?: string) {
     const action = this.actions.get()[actionId];
 
     this.#updateAction(actionId, { status: 'running' });
 
+    let exitCode: number | undefined;
+
     try {
       switch (action.type) {
         case 'shell': {
-          await this.#runShellAction(action);
+          exitCode = await this.#runShellAction(action);
           break;
         }
         case 'file': {
@@ -160,12 +171,17 @@ export class ActionRunner {
           // making the start app non blocking
 
           this.#runStartAction(action)
-            .then(() => this.#updateAction(actionId, { status: 'complete' }))
+            .then(() => {
+              this.#updateAction(actionId, { status: 'complete' });
+              generationTelemetry.recordActionEnd(messageId, actionId, 'complete');
+            })
             .catch((err: Error) => {
               if (action.abortSignal.aborted) {
+                generationTelemetry.recordActionEnd(messageId, actionId, 'aborted');
                 return;
               }
 
+              generationTelemetry.recordActionEnd(messageId, actionId, 'failed');
               this.#updateAction(actionId, { status: 'failed', error: 'Action failed' });
               logger.error(`[${action.type}]:Action failed\n\n`, err);
 
@@ -194,12 +210,23 @@ export class ActionRunner {
       this.#updateAction(actionId, {
         status: isStreaming ? 'running' : action.abortSignal.aborted ? 'aborted' : 'complete',
       });
+
+      if (!isStreaming) {
+        generationTelemetry.recordActionEnd(
+          messageId,
+          actionId,
+          action.abortSignal.aborted ? 'aborted' : 'complete',
+          exitCode,
+        );
+      }
     } catch (error) {
       if (action.abortSignal.aborted) {
+        generationTelemetry.recordActionEnd(messageId, actionId, 'aborted');
         return;
       }
 
       this.#updateAction(actionId, { status: 'failed', error: 'Action failed' });
+      generationTelemetry.recordActionEnd(messageId, actionId, 'failed');
       logger.error(`[${action.type}]:Action failed\n\n`, error);
 
       if (!(error instanceof ActionCommandError)) {
@@ -218,7 +245,7 @@ export class ActionRunner {
     }
   }
 
-  async #runShellAction(action: ActionState) {
+  async #runShellAction(action: ActionState): Promise<number | undefined> {
     if (action.type !== 'shell') {
       unreachable('Expected shell action');
     }
@@ -239,6 +266,8 @@ export class ActionRunner {
     if (resp?.exitCode != 0) {
       throw new ActionCommandError(`Failed To Execute Shell Command`, resp?.output || 'No Output Available');
     }
+
+    return resp?.exitCode;
   }
 
   async #runStartAction(action: ActionState) {

@@ -156,6 +156,38 @@ describe('StreamingMessageParser', () => {
       runTest(input, expected);
     });
   });
+
+  describe('getOpenState (add-generation-telemetry task 4.1)', () => {
+    const closedArtifact =
+      'Before <boltArtifact title="Some title" id="artifact_1"><boltAction type="file" filePath="index.ts">x</boltAction></boltArtifact> After';
+
+    it('reports closed state after a fully parsed artifact', () => {
+      const parser = new StreamingMessageParser({ artifactElement: () => '' });
+      parser.parse('m1', closedArtifact);
+
+      expect(parser.getOpenState('m1')).toEqual({ insideArtifact: false, insideAction: false });
+    });
+
+    it('reports an unclosed artifact when the stream ends mid-artifact', () => {
+      const parser = new StreamingMessageParser({ artifactElement: () => '' });
+      parser.parse('m1', closedArtifact.slice(0, closedArtifact.indexOf('</boltArtifact>')));
+
+      expect(parser.getOpenState('m1')).toEqual({ insideArtifact: true, insideAction: false });
+    });
+
+    it('reports an unclosed action when the stream ends mid-action', () => {
+      const parser = new StreamingMessageParser({ artifactElement: () => '' });
+      parser.parse('m1', closedArtifact.slice(0, closedArtifact.indexOf('</boltAction>')));
+
+      expect(parser.getOpenState('m1')).toEqual({ insideArtifact: true, insideAction: true });
+    });
+
+    it('reports closed state for unknown messages', () => {
+      const parser = new StreamingMessageParser();
+
+      expect(parser.getOpenState('never-parsed')).toEqual({ insideArtifact: false, insideAction: false });
+    });
+  });
 });
 
 function runTest(input: string | string[], outputOrExpectedResult: string | ExpectedResult) {

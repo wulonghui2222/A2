@@ -35,3 +35,10 @@ export const A2_ENABLE_DEPLOY = false; // deploy exits (none exist in this fork 
  * "false" to fall back to the pre-change behavior); defaults to on.
  */
 export const A2_ENABLE_RESPONSE_STATS = (import.meta.env.A2_ENABLE_RESPONSE_STATS ?? 'true') !== 'false';
+
+/*
+ * add-generation-telemetry (design D6): generation pipeline telemetry. The
+ * collection layer is always on (near-zero overhead); this flag only gates
+ * the dev-only waterfall panel, which stays hidden from end users by default.
+ */
+export const A2_ENABLE_GENERATION_TELEMETRY = (import.meta.env.A2_ENABLE_GENERATION_TELEMETRY ?? 'false') !== 'false';

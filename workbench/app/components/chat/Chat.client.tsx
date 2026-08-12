@@ -6,14 +6,16 @@ import { useStore } from '@nanostores/react';
 import type { Message } from 'ai';
 import { useChat } from 'ai/react';
 import { useAnimate } from 'framer-motion';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cssTransition, toast, ToastContainer } from 'react-toastify';
-import { useMessageParser, usePromptEnhancer, useShortcuts, useSnapScroll } from '~/lib/hooks';
+import { useMessageParser, usePromptEnhancer, useShortcuts, useSnapScroll, flushMessageParse } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
-import { A2_ENABLE_PROVIDER_SWITCH, A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
+import { A2_ENABLE_GENERATION_TELEMETRY, A2_ENABLE_PROVIDER_SWITCH, A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
+import { generationTelemetry, type TelemetryAnnotationValue } from '~/a2/telemetry';
+import { GenerationTelemetryPanel } from '~/a2/generation-telemetry-panel';
 import type { RequestStatus } from './ResponseStats';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
@@ -158,6 +160,9 @@ export const ChatImpl = memo(
     const beginRequestTracking = () => {
       requestStartedAtRef.current = Date.now();
       setRequestStatus('submitting');
+
+      // add-generation-telemetry: round-0 boundary (user sent a message; assistant id unknown yet)
+      generationTelemetry.beginRequest();
     };
 
     const { messages, isLoading, input, handleInputChange, setInput, stop, append, setMessages, reload } = useChat({
@@ -178,6 +183,9 @@ export const ChatImpl = memo(
           'There was an error processing your request: ' + (error.message ? error.message : 'No details were returned'),
         );
         setRequestStatus('error');
+
+        // add-generation-telemetry (task 4.2): LLM request failure (also covers the segment-limit throw)
+        generationTelemetry.interruptActiveRound('llm-error');
 
         /*
          * chat-response-stats (design D4 / task 4.3): the server threw before
@@ -220,15 +228,36 @@ export const ChatImpl = memo(
 
         setRequestStatus('finished');
         logger.debug('Finished streaming');
+
+        /*
+         * add-generation-telemetry (tasks 3.3/4.1/4.2): close the fresh round.
+         * Server-authoritative timing comes from the WB-09 usage annotation;
+         * a missing usage annotation implies the segment-limit interruption
+         * (design D4). The parser open state detects unclosed artifacts.
+         */
+        const annotations = (message.annotations ?? []) as Array<{ type?: string; value?: any }>;
+        const usageAnnotation = annotations.find((annotation) => annotation?.type === 'usage');
+        const openState = flushMessageParse(message.id, typeof message.content === 'string' ? message.content : '');
+
+        if (!usageAnnotation) {
+          generationTelemetry.recordInterrupt('segment-limit');
+        }
+
+        void generationTelemetry.streamEnd(message.id, {
+          unclosed: openState.insideArtifact || openState.insideAction,
+          serverTiming: usageAnnotation?.value?.timing,
+        });
       },
       initialMessages,
+
       /*
        * A2 UX: pre-fill the prompt with a sensible default so first-time users
        * land on a ready-to-send example instead of an empty box. Only applies
        * to new chats (no existing messages); cached drafts still win so a page
        * refresh never clobbers in-progress typing.
        */
-      initialInput: Cookies.get(PROMPT_COOKIE_KEY) || (initialMessages.length === 0 ? '创建一个漂亮的个人介绍网页' : ''),
+      initialInput:
+        Cookies.get(PROMPT_COOKIE_KEY) || (initialMessages.length === 0 ? '创建一个漂亮的个人介绍网页' : ''),
     });
 
     /*
@@ -244,6 +273,10 @@ export const ChatImpl = memo(
 
       if (last && last.role === 'assistant' && (last.content?.length || 0) > 0) {
         setRequestStatus('streaming');
+
+        // add-generation-telemetry: bind the round to the assistant message and mark the first visible token
+        generationTelemetry.startRound(last.id);
+        generationTelemetry.markFirstToken();
       }
     }, [requestStatus, messages]);
     useEffect(() => {
@@ -269,6 +302,37 @@ export const ChatImpl = memo(
 
     const { enhancingPrompt, promptEnhanced, enhancePrompt, resetEnhancer } = usePromptEnhancer();
     const { parsedMessages, parseMessages } = useMessageParser();
+
+    /*
+     * add-generation-telemetry (task 5.1): finalized fresh rounds persist as a
+     * telemetry annotation on the assistant message through the existing
+     * message persistence channel. Rounds can finalize up to 30s after the
+     * stream (preview grace window), so read messages through a ref.
+     */
+    const messagesRef = useRef(messages);
+    messagesRef.current = messages;
+
+    useEffect(() => {
+      generationTelemetry.setPersistHandler(async (messageId, annotation) => {
+        const current = messagesRef.current;
+        const index = current.findIndex((message) => message.id === messageId);
+
+        if (index === -1) {
+          return;
+        }
+
+        const next = current.map((message, i) =>
+          i === index ? { ...message, annotations: [...(message.annotations || []), annotation] } : message,
+        ) as Message[];
+
+        setMessages(next);
+        await storeMessageHistory(next);
+      });
+
+      return () => {
+        generationTelemetry.setPersistHandler(undefined);
+      };
+    }, [setMessages, storeMessageHistory]);
 
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
 
@@ -296,6 +360,10 @@ export const ChatImpl = memo(
 
     const abort = () => {
       stop();
+
+      // add-generation-telemetry (task 4.2): user abort ends the stream; aborted actions then drain the round
+      generationTelemetry.interruptActiveRound('abort');
+
       chatStore.setKey('aborted', true);
       workbenchStore.abortAllActions();
     };
@@ -555,6 +623,20 @@ export const ChatImpl = memo(
     const [messageRef, scrollRef] = useSnapScroll();
 
     /*
+     * add-generation-telemetry (task 6.2): persisted telemetry annotations of
+     * the loaded messages feed the dev-only panel alongside live rounds.
+     */
+    const persistedTelemetry = useMemo(
+      () =>
+        messages.flatMap((message) =>
+          ((message.annotations ?? []) as Array<{ type?: string; value?: TelemetryAnnotationValue }>)
+            .filter((annotation) => annotation?.type === 'telemetry')
+            .map((annotation) => annotation.value as TelemetryAnnotationValue),
+        ),
+      [messages],
+    );
+
+    /*
      * chat-response-stats (task 3.2): visible content length of the streaming
      * assistant message, feeding the live token estimate.
      */
@@ -581,63 +663,67 @@ export const ChatImpl = memo(
     };
 
     return (
-      <BaseChat
-        ref={animationScope}
-        textareaRef={textareaRef}
-        input={input}
-        showChat={showChat}
-        chatStarted={chatStarted}
-        isStreaming={isLoading || fakeLoading}
-        enhancingPrompt={enhancingPrompt}
-        promptEnhanced={promptEnhanced}
-        sendMessage={sendMessage}
-        model={model}
-        setModel={handleModelChange}
-        provider={provider}
-        setProvider={handleProviderChange}
-        providerList={activeProviders}
-        messageRef={messageRef}
-        scrollRef={scrollRef}
-        handleInputChange={(e) => {
-          onTextareaChange(e);
-          debouncedCachePrompt(e);
-        }}
-        handleStop={abort}
-        description={description}
-        importChat={importChat}
-        exportChat={exportChat}
-        messages={messages.map((message, i) => {
-          if (message.role === 'user') {
-            return message;
-          }
+      <>
+        <BaseChat
+          ref={animationScope}
+          textareaRef={textareaRef}
+          input={input}
+          showChat={showChat}
+          chatStarted={chatStarted}
+          isStreaming={isLoading || fakeLoading}
+          enhancingPrompt={enhancingPrompt}
+          promptEnhanced={promptEnhanced}
+          sendMessage={sendMessage}
+          model={model}
+          setModel={handleModelChange}
+          provider={provider}
+          setProvider={handleProviderChange}
+          providerList={activeProviders}
+          messageRef={messageRef}
+          scrollRef={scrollRef}
+          handleInputChange={(e) => {
+            onTextareaChange(e);
+            debouncedCachePrompt(e);
+          }}
+          handleStop={abort}
+          description={description}
+          importChat={importChat}
+          exportChat={exportChat}
+          messages={messages.map((message, i) => {
+            if (message.role === 'user') {
+              return message;
+            }
 
-          return {
-            ...message,
-            content: parsedMessages[i] || '',
-          };
-        })}
-        enhancePrompt={() => {
-          enhancePrompt(
-            input,
-            (input) => {
-              setInput(input);
-              scrollTextArea();
-            },
-            model,
-            provider,
-            apiKeys,
-          );
-        }}
-        uploadedFiles={uploadedFiles}
-        setUploadedFiles={setUploadedFiles}
-        imageDataList={imageDataList}
-        setImageDataList={setImageDataList}
-        actionAlert={actionAlert}
-        clearAlert={() => workbenchStore.clearAlert()}
-        requestStatus={A2_ENABLE_RESPONSE_STATS ? requestStatus : undefined}
-        requestStartedAt={requestStartedAtRef.current}
-        streamingContentLength={streamingContentLength}
-      />
+            return {
+              ...message,
+              content: parsedMessages[i] || '',
+            };
+          })}
+          enhancePrompt={() => {
+            enhancePrompt(
+              input,
+              (input) => {
+                setInput(input);
+                scrollTextArea();
+              },
+              model,
+              provider,
+              apiKeys,
+            );
+          }}
+          uploadedFiles={uploadedFiles}
+          setUploadedFiles={setUploadedFiles}
+          imageDataList={imageDataList}
+          setImageDataList={setImageDataList}
+          actionAlert={actionAlert}
+          clearAlert={() => workbenchStore.clearAlert()}
+          requestStatus={A2_ENABLE_RESPONSE_STATS ? requestStatus : undefined}
+          requestStartedAt={requestStartedAtRef.current}
+          streamingContentLength={streamingContentLength}
+        />
+        {/* add-generation-telemetry (task 6.1): dev-only waterfall panel, flag-gated */}
+        {A2_ENABLE_GENERATION_TELEMETRY && <GenerationTelemetryPanel persistedAnnotations={persistedTelemetry} />}
+      </>
     );
   },
 );

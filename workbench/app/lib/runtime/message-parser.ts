@@ -273,6 +273,19 @@ export class StreamingMessageParser {
     return output;
   }
 
+  /**
+   * add-generation-telemetry (task 4.1): read-only probe for unclosed-artifact
+   * detection at stream end. Does not alter parsing behavior.
+   */
+  getOpenState(messageId: string): { insideArtifact: boolean; insideAction: boolean } {
+    const state = this.#messages.get(messageId);
+
+    return {
+      insideArtifact: state?.insideArtifact ?? false,
+      insideAction: state?.insideAction ?? false,
+    };
+  }
+
   reset() {
     this.#messages.clear();
   }
