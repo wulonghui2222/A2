@@ -1,5 +1,6 @@
 import { json, type LoaderFunctionArgs } from '@remix-run/cloudflare';
 import { isRouteErrorResponse, useLoaderData, useRouteError } from '@remix-run/react';
+import { useState } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { prisma } from '~/a2/db.server';
 import { PlazaVisitor } from '~/a2/plaza/PlazaVisitor.client';
@@ -25,7 +26,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
   const project = await prisma.project.findFirst({
     where: { urlId, isPublic: true },
-    select: { id: true, description: true, fileSnapshot: true },
+    select: { id: true, description: true, fileSnapshot: true, user: { select: { username: true } } },
   });
 
   if (!project) {
@@ -44,11 +45,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
     description: project.description,
     viewCount: updated.viewCount,
     hasSnapshot: Boolean(project.fileSnapshot),
+    author: project.user?.username ?? null,
   });
 }
 
 export default function PlazaDetail() {
-  const { urlId, description, viewCount, hasSnapshot } = useLoaderData<typeof loader>();
+  const { urlId, description, viewCount, hasSnapshot, author } = useLoaderData<typeof loader>();
+  const [showFiles, setShowFiles] = useState(false);
 
   return (
     <div className="flex flex-col h-full w-full bg-bolt-elements-background-depth-1">
@@ -62,6 +65,22 @@ export default function PlazaDetail() {
         </a>
         <div className="h-4 w-px bg-bolt-elements-borderColor" />
         <div className="truncate text-sm font-medium text-bolt-elements-textPrimary">{description || '未命名项目'}</div>
+        {author && (
+          <div className="flex items-center gap-1 text-xs text-bolt-elements-textTertiary">
+            <span className="i-ph:user-circle" />
+            {author}
+          </div>
+        )}
+        {hasSnapshot && (
+          <button
+            type="button"
+            onClick={() => setShowFiles((v) => !v)}
+            className="flex items-center gap-1 rounded-md border border-bolt-elements-borderColor px-2 py-1 text-xs text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:border-bolt-elements-item-contentAccent transition-colors"
+          >
+            <span className={showFiles ? 'i-ph:eye-slash' : 'i-ph:code'} />
+            {showFiles ? '隐藏代码' : '查看代码'}
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1 text-xs text-bolt-elements-textTertiary">
           <span className="i-ph:eye" />
           {viewCount} 次浏览
@@ -76,7 +95,7 @@ export default function PlazaDetail() {
           <p className="text-xs text-bolt-elements-textTertiary">项目所有者保存后，这里才会展示运行效果</p>
         </div>
       ) : (
-        <ClientOnly fallback={<VisitorLoading />}>{() => <PlazaVisitor urlId={urlId} />}</ClientOnly>
+        <ClientOnly fallback={<VisitorLoading />}>{() => <PlazaVisitor urlId={urlId} showFiles={showFiles} />}</ClientOnly>
       )}
     </div>
   );

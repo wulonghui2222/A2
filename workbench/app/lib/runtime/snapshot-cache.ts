@@ -1,8 +1,19 @@
 import type { WebContainer } from '@webcontainer/api';
 import { A2_ENABLE_NM_SNAPSHOT_CACHE } from '~/a2/config';
 import { generationTelemetry } from '~/a2/telemetry';
-import { webcontainer } from '~/lib/webcontainer';
 import { createScopedLogger } from '~/utils/logger';
+
+/*
+ * The workbench singleton is imported LAZILY: statically importing
+ * '~/lib/webcontainer' boots a WebContainer at module evaluation, which
+ * would consume the single per-document boot slot and break the plaza's
+ * own instance. Only the workbench-side restore/write-back paths need it;
+ * the plaza variants receive their instance explicitly.
+ */
+async function getWorkbenchWebContainer(): Promise<WebContainer> {
+  const { webcontainer } = await import('~/lib/webcontainer');
+  return webcontainer;
+}
 
 /*
  * replay-snapshot-cache (design D1-D6): browser-side cache of serialized
@@ -334,7 +345,7 @@ async function tryRestoreSnapshot(packageJsonContent: string): Promise<SnapshotR
       return miss();
     }
 
-    const wc = await webcontainer;
+    const wc = await getWorkbenchWebContainer();
 
     await wc.mount(bytes);
 
@@ -473,7 +484,7 @@ async function maybeWriteBack(rounds: Record<string, WriteBackRound>) {
   logger.info('[nm-cache] write-back triggered (install ok + preview open)');
 
   try {
-    const wc = await webcontainer;
+    const wc = await getWorkbenchWebContainer();
     const packageJsonContent = await wc.fs.readFile('package.json', 'utf-8').catch(() => undefined);
 
     if (!packageJsonContent) {
@@ -514,7 +525,7 @@ async function maybeWriteBack(rounds: Record<string, WriteBackRound>) {
   }
 }
 
-function ensureWriteBackSubscription() {
+export function ensureWriteBackSubscription() {
   if (writeBackSubscribed || import.meta.env.SSR) {
     return;
   }
@@ -530,7 +541,7 @@ function ensureWriteBackSubscription() {
    * port opens afterwards (no active/draining round to tap), no rounds update
    * fires. Tap the port event directly so the write-back still triggers.
    */
-  void webcontainer
+  void getWorkbenchWebContainer()
     .then((wc) => {
       wc.on('port', (_port, type) => {
         if (type === 'open') {
@@ -549,5 +560,117 @@ export function __snapshotCacheInternals() {
   return { restoreState, getEntry, readSnapshotBlob, listEntries };
 }
 
-// kick the write-back subscription on the client (no-op under SSR/tests)
-ensureWriteBackSubscription();
+/*
+ * Plaza visitor variants: the plaza boots its own WebContainer (not the
+ * workbench singleton), so restore/write-back take an explicit instance.
+ * The cache itself is shared with the workbench (same package.json-hash
+ * key), so a workspace cached during generation also speeds up plaza visits.
+ */
+
+/**
+ * Plaza restore: mount the cached workspace snapshot into the given
+ * WebContainer instance, skipping a cold npm install. Returns whether the
+ * caller may skip the install. Never throws; any failure reports a miss.
+ */
+export async function restorePlazaSnapshot(
+  wc: WebContainer,
+  packageJsonContent: string,
+): Promise<SnapshotRestoreResult> {
+  const startedAt = Date.now();
+
+  const miss = (fallback: SnapshotRestoreResult['fallback'] = 'none'): SnapshotRestoreResult => ({
+    restored: false,
+    durationMs: Date.now() - startedAt,
+    fallback,
+  });
+
+  if (!isNmSnapshotCacheEnabled() || !packageJsonContent) {
+    return miss();
+  }
+
+  try {
+    const key = await sha256Hex(packageJsonContent);
+    const entry = await getEntry(key);
+
+    if (!entry) {
+      return miss();
+    }
+
+    const bytes = await readSnapshotBlob(key);
+
+    if (!bytes) {
+      await deleteEntry(key);
+      return miss();
+    }
+
+    await wc.mount(bytes);
+
+    // exec bits do not survive the json round-trip (POC finding)
+    const chmod = await wc.spawn('jsh', ['-c', 'chmod 755 node_modules/.bin/*']);
+    await chmod.exit;
+    void chmod.output.pipeTo(new WritableStream()).catch(() => undefined);
+
+    // health check: .bin populated and package.json readable
+    const binEntries = await wc.fs.readdir('node_modules/.bin').catch(() => undefined);
+    const packageJson = await wc.fs.readFile('package.json', 'utf-8').catch(() => undefined);
+
+    if (!binEntries || binEntries.length === 0 || packageJson === undefined) {
+      return miss('mount-failed');
+    }
+
+    await snapshotCache.touch(key);
+    logger.info(`[nm-cache] plaza restore hit in ${Date.now() - startedAt}ms`);
+
+    return { restored: true, durationMs: Date.now() - startedAt, fallback: 'none' };
+  } catch (error) {
+    logger.warn('[nm-cache] plaza restore failed, falling back to cold install', error);
+    return miss('mount-failed');
+  }
+}
+
+/**
+ * Plaza write-back: after a cold install succeeds and the dev server is up,
+ * serialize the workspace into the shared OPFS cache so later visits (plaza
+ * or workbench replay) with the same package.json skip the install.
+ * Idempotent; never throws.
+ */
+export async function writeBackPlazaSnapshot(wc: WebContainer, packageJsonContent: string): Promise<void> {
+  if (!isNmSnapshotCacheEnabled() || !packageJsonContent) {
+    return;
+  }
+
+  try {
+    const key = await sha256Hex(packageJsonContent);
+
+    if (inFlightWriteBacks.has(key) || (await getEntry(key))) {
+      return; // idempotent (design D4)
+    }
+
+    const serialize = getSerialize(wc);
+
+    if (!serialize) {
+      logger.warn('[nm-cache] wc.internal.serialize unavailable — plaza write-back disabled');
+      return;
+    }
+
+    inFlightWriteBacks.add(key);
+
+    try {
+      const bytes = await serialize('.', { format: 'json' });
+      const stored = await snapshotCache.put(packageJsonContent, bytes);
+
+      logger.info(`[nm-cache] plaza write-back ${stored ? 'ok' : 'skipped'} (${bytes.byteLength} bytes)`);
+    } finally {
+      inFlightWriteBacks.delete(key);
+    }
+  } catch (error) {
+    logger.warn('[nm-cache] plaza write-back failed', error);
+  }
+}
+
+/*
+ * The write-back subscription is kicked from the workbench store module
+ * (workbench-only code path). Kicking it here at module evaluation would
+ * pull in the workbench WebContainer singleton on the plaza page and steal
+ * its single boot slot.
+ */

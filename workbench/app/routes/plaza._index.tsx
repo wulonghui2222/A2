@@ -21,6 +21,7 @@ interface PlazaProject {
   description: string | null;
   viewCount: number;
   hasThumbnail: boolean;
+  author: string | null;
 }
 
 export const meta = () => {
@@ -36,14 +37,18 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const projects = await prisma.project.findMany({
     where: { isPublic: true },
     orderBy: { viewCount: 'desc' },
-    select: { id: true, urlId: true, description: true, viewCount: true, thumbnail: true },
+    select: { id: true, urlId: true, description: true, viewCount: true, thumbnail: true, user: { select: { username: true } } },
   });
 
   /*
    * D4: only a presence flag goes into the list payload; the base64 JPEG is
    * served separately by the thumbnail resource route (lazy <img>).
    */
-  const mapped = projects.map(({ thumbnail, ...rest }) => ({ ...rest, hasThumbnail: Boolean(thumbnail) }));
+  const mapped = projects.map(({ thumbnail, user, ...rest }) => ({
+    ...rest,
+    hasThumbnail: Boolean(thumbnail),
+    author: user?.username ?? null,
+  }));
 
   return json({ username: user?.username, projects: mapped as PlazaProject[] });
 }
@@ -90,7 +95,17 @@ export default function PlazaIndex() {
                 <div className="truncate text-sm font-medium text-bolt-elements-textPrimary group-hover:text-bolt-elements-item-contentAccent transition-colors">
                   {project.description || '未命名项目'}
                 </div>
-                <div className="mt-1 text-xs text-bolt-elements-textTertiary">{project.viewCount} 次浏览</div>
+                <div className="mt-1 flex items-center justify-between text-xs text-bolt-elements-textTertiary">
+                  {project.author ? (
+                    <span className="flex items-center gap-1">
+                      <span className="i-ph:user-circle" />
+                      {project.author}
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <span>{project.viewCount} 次浏览</span>
+                </div>
               </a>
             ))}
           </div>

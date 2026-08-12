@@ -2,7 +2,7 @@ import { atom, map, type MapStore, type ReadableAtom, type WritableAtom } from '
 import type { EditorDocument, ScrollPosition } from '~/components/editor/codemirror/CodeMirrorEditor';
 import { ActionRunner } from '~/lib/runtime/action-runner';
 import type { ActionCallbackData, ArtifactCallbackData } from '~/lib/runtime/message-parser';
-import { isRestoredActionSkippable } from '~/lib/runtime/snapshot-cache';
+import { ensureWriteBackSubscription, isRestoredActionSkippable } from '~/lib/runtime/snapshot-cache';
 import { webcontainer } from '~/lib/webcontainer';
 import type { ITerminal } from '~/types/terminal';
 import { unreachable } from '~/utils/unreachable';
@@ -20,6 +20,14 @@ import Cookies from 'js-cookie';
 import { createSampler } from '~/utils/sampler';
 import type { ActionAlert } from '~/types/actions';
 import { WORK_DIR } from '~/utils/constants';
+
+/*
+ * Kick the snapshot-cache write-back subscription here (workbench-only code
+ * path): doing it inside snapshot-cache.ts at module evaluation would boot
+ * the workbench WebContainer singleton on the plaza page and consume its
+ * single per-document boot slot. No-op under SSR/tests.
+ */
+ensureWriteBackSubscription();
 
 export interface ArtifactState {
   id: string;
