@@ -27,10 +27,10 @@ test.describe('广场流 (PL-01/PL-02/WB-10)', () => {
       fileSnapshot: { 'index.html': '<h1>plaza</h1>' },
     });
 
-    // WB-10: publish from "我的项目".
-    await page.goto('/my-projects');
+    // WB-10: publish from the workbench header (moved off my-projects in D7).
+    await page.goto(`/chat/${project.urlId}`);
     await page.getByRole('button', { name: '公开到广场' }).click();
-    await expect(page.getByText('已公开')).toBeVisible();
+    await expect(page.getByRole('button', { name: '取消公开' })).toBeVisible();
 
     // PL-01: the project shows up in the plaza listing.
     await page.goto('/plaza');
@@ -43,9 +43,9 @@ test.describe('广场流 (PL-01/PL-02/WB-10)', () => {
     await expect(page.getByText('次浏览').first()).toBeVisible();
 
     // Unpublish again; the plaza listing drops the project.
-    await page.goto('/my-projects');
+    await page.goto(`/chat/${project.urlId}`);
     await page.getByRole('button', { name: '取消公开' }).click();
-    await expect(page.getByText('已公开')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '公开到广场' })).toBeVisible();
 
     await page.goto('/plaza');
     await expect(page.getByText(description)).toHaveCount(0);
