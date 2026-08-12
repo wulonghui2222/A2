@@ -1,5 +1,5 @@
 import { A2_DEFAULT_MODEL } from '~/a2/config';
-import { parseSseStream } from './sse-parser';
+import { parseSseStream, type SseChunk } from './sse-parser';
 
 /*
  * dashscope-reasoning-stream (design D1-D3, D8): direct gateway streaming for
@@ -14,6 +14,58 @@ import { parseSseStream } from './sse-parser';
  */
 
 const REASONING_THROTTLE_MS = 200;
+
+/*
+ * Resilience: upstream stalls (observed 120s outliers) must not hang the
+ * client forever. The same budget guards both the initial response and the
+ * gap between SSE chunks; on expiry the attempt is retried once, but only
+ * while nothing has been emitted to the client (assistantMessageSeeded) —
+ * replaying after visible output would duplicate content.
+ */
+const DEFAULT_TTFB_TIMEOUT_MS = 90_000;
+const MAX_FETCH_ATTEMPTS = 2;
+
+class TtfbTimeoutError extends Error {}
+
+class HttpStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Race a promise against a timeout. On expiry run onTimeout (abort the fetch)
+ * and reject with TtfbTimeoutError; the losing promise's rejection is swallowed
+ * to avoid unhandled-rejection noise after the abort.
+ */
+function raceWithTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+  promise.catch(() => {});
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const raced = Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        onTimeout();
+        reject(new TtfbTimeoutError(`no data from the LLM upstream within ${Math.round(ms / 1000)}s`));
+      }, ms);
+    }),
+  ]);
+
+  // clear the pending timer once either side settles. Handlers on both
+  // branches so the derived promise never surfaces an unhandled rejection
+  // (neither would try/finally: it runs synchronously at race creation).
+  void raced.then(
+    () => clearTimeout(timer),
+    () => clearTimeout(timer),
+  );
+
+  return raced;
+}
 
 export interface DashScopeUsage {
   promptTokens: number;
@@ -143,6 +195,9 @@ export function dashScopeStreamText(props: DashScopeStreamTextProps): DashScopeS
         const selfBase = envVars?.A2_SELF_BASE_URL || 'http://localhost:5173';
         const internalToken = envVars?.A2_INTERNAL_TOKEN;
 
+        const parsedTimeout = Number(envVars?.A2_LLM_TTFB_TIMEOUT_MS);
+        const ttfbTimeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : DEFAULT_TTFB_TIMEOUT_MS;
+
         const requestMessages: Array<{ role: string; content: string }> = [];
 
         if (props.system) {
@@ -151,113 +206,164 @@ export function dashScopeStreamText(props: DashScopeStreamTextProps): DashScopeS
 
         requestMessages.push(...props.messages);
 
-        const response = await fetch(`${selfBase}/api/llm/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(internalToken ? { 'x-a2-internal': internalToken } : {}),
-          },
-          body: JSON.stringify({
-            model: props.model,
-            messages: requestMessages,
-            max_tokens: props.maxTokens,
-            stream: true,
+        const requestBody = JSON.stringify({
+          model: props.model,
+          messages: requestMessages,
+          max_tokens: props.maxTokens,
+          stream: true,
 
-            // usage-only final chunk (RS-04 usage accumulation in api.chat)
-            stream_options: { include_usage: true },
-          }),
+          // usage-only final chunk (RS-04 usage accumulation in api.chat)
+          stream_options: { include_usage: true },
         });
 
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => '');
-          let message = `LLM request failed with status ${response.status}`;
+        for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt += 1) {
+          const abortController = new AbortController();
+          let chunkIterator: AsyncIterator<SseChunk> | undefined;
 
           try {
-            const parsed = JSON.parse(errorText) as { error?: { message?: string } };
+            const response = await raceWithTimeout(
+              fetch(`${selfBase}/api/llm/chat/completions`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(internalToken ? { 'x-a2-internal': internalToken } : {}),
+                },
+                body: requestBody,
+                signal: abortController.signal,
+              }),
+              ttfbTimeoutMs,
+              () => abortController.abort(),
+            );
 
-            if (parsed?.error?.message) {
-              message = parsed.error.message;
+            if (!response.ok) {
+              const errorText = await response.text().catch(() => '');
+              let message = `LLM request failed with status ${response.status}`;
+
+              try {
+                const parsed = JSON.parse(errorText) as { error?: { message?: string } };
+
+                if (parsed?.error?.message) {
+                  message = parsed.error.message;
+                }
+              } catch {
+                // keep the generic message
+              }
+
+              throw new HttpStatusError(message, response.status);
             }
-          } catch {
-            // keep the generic message
-          }
 
-          safeEnqueue(controller, formatDataStreamLine('3', message));
-          closed = true;
-          controller.close();
+            chunkIterator = parseSseStream(response)[Symbol.asyncIterator]();
 
-          return;
-        }
+            while (true) {
+              const next = await raceWithTimeout(chunkIterator.next(), ttfbTimeoutMs, () => abortController.abort());
 
-        for await (const chunk of parseSseStream(response)) {
-          const reasoningDelta = chunk.delta?.reasoning_content;
-          const contentDelta = chunk.delta?.content;
+              if (next.done) {
+                break;
+              }
 
-          if (reasoningDelta) {
-            if (!firstReasoningTokenReported) {
-              firstReasoningTokenReported = true;
-              props.onFirstReasoningToken?.();
+              const chunk: SseChunk = next.value;
+              const reasoningDelta = chunk.delta?.reasoning_content;
+              const contentDelta = chunk.delta?.content;
+
+              if (reasoningDelta) {
+                if (!firstReasoningTokenReported) {
+                  firstReasoningTokenReported = true;
+                  props.onFirstReasoningToken?.();
+                }
+
+                reasoningBuffer += reasoningDelta;
+
+                /*
+                 * D3 trade-off: every `8:` part triggers a full client re-render
+                 * with a deep message copy, so buffer deltas and flush at most
+                 * once per REASONING_THROTTLE_MS.
+                 */
+                const elapsed = Date.now() - lastReasoningFlushAt;
+
+                if (elapsed >= REASONING_THROTTLE_MS) {
+                  flushReasoning(controller);
+                } else if (flushTimer === undefined) {
+                  flushTimer = setTimeout(() => {
+                    flushTimer = undefined;
+                    flushReasoning(controller);
+                  }, REASONING_THROTTLE_MS - elapsed);
+                }
+              }
+
+              if (contentDelta) {
+                assistantMessageSeeded = true;
+
+                if (!firstTextDeltaReported) {
+                  firstTextDeltaReported = true;
+                  props.onFirstTextDelta?.();
+                }
+
+                accumulatedText += contentDelta;
+                safeEnqueue(controller, formatDataStreamLine('0', contentDelta));
+              }
+
+              if (chunk.usage) {
+                usage = {
+                  promptTokens: chunk.usage.prompt_tokens,
+                  completionTokens: chunk.usage.completion_tokens,
+                  totalTokens: chunk.usage.total_tokens,
+                };
+              }
+
+              if (chunk.finish_reason) {
+                finishReason = mapFinishReason(chunk.finish_reason);
+              }
             }
 
-            reasoningBuffer += reasoningDelta;
+            if (flushTimer !== undefined) {
+              clearTimeout(flushTimer);
+              flushTimer = undefined;
+            }
+
+            // any buffered reasoning must land before the segment ends
+            flushReasoning(controller);
+
+            // D8: e: with isContinued:false preserves today's per-segment message split
+            safeEnqueue(controller, formatDataStreamLine('e', { finishReason, isContinued: false }));
+
+            closed = true;
+            controller.close();
+
+            await props.options?.onFinish?.({ text: accumulatedText, finishReason, usage });
+
+            return;
+          } catch (error) {
+            if (flushTimer !== undefined) {
+              clearTimeout(flushTimer);
+              flushTimer = undefined;
+            }
+
+            // 4xx is deterministic; anything emitted already cannot be replayed
+            const retryable = !(error instanceof HttpStatusError && error.status < 500) && !assistantMessageSeeded;
 
             /*
-             * D3 trade-off: every `8:` part triggers a full client re-render
-             * with a deep message copy, so buffer deltas and flush at most
-             * once per REASONING_THROTTLE_MS.
+             * Best-effort close of the SSE iterator so its generator reaches
+             * the finally block (reader.releaseLock()). Must not be awaited:
+             * return() queues behind the in-flight read(), which never
+             * settles if the upstream is truly silent. Fire-and-forget with
+             * the rejection swallowed.
              */
-            const elapsed = Date.now() - lastReasoningFlushAt;
+            void chunkIterator?.return?.().catch(() => {});
 
-            if (elapsed >= REASONING_THROTTLE_MS) {
-              flushReasoning(controller);
-            } else if (flushTimer === undefined) {
-              flushTimer = setTimeout(() => {
-                flushTimer = undefined;
-                flushReasoning(controller);
-              }, REASONING_THROTTLE_MS - elapsed);
-            }
-          }
-
-          if (contentDelta) {
-            assistantMessageSeeded = true;
-
-            if (!firstTextDeltaReported) {
-              firstTextDeltaReported = true;
-              props.onFirstTextDelta?.();
+            if (retryable && attempt < MAX_FETCH_ATTEMPTS) {
+              continue;
             }
 
-            accumulatedText += contentDelta;
-            safeEnqueue(controller, formatDataStreamLine('0', contentDelta));
-          }
+            const baseMessage = error instanceof Error ? error.message : String(error);
+            const message = attempt > 1 ? `${baseMessage} (after ${attempt} attempts)` : baseMessage;
 
-          if (chunk.usage) {
-            usage = {
-              promptTokens: chunk.usage.prompt_tokens,
-              completionTokens: chunk.usage.completion_tokens,
-              totalTokens: chunk.usage.total_tokens,
-            };
-          }
+            safeEnqueue(controller, formatDataStreamLine('3', message));
+            closed = true;
+            controller.close();
 
-          if (chunk.finish_reason) {
-            finishReason = mapFinishReason(chunk.finish_reason);
+            return;
           }
         }
-
-        if (flushTimer !== undefined) {
-          clearTimeout(flushTimer);
-          flushTimer = undefined;
-        }
-
-        // any buffered reasoning must land before the segment ends
-        flushReasoning(controller);
-
-        // D8: e: with isContinued:false preserves today's per-segment message split
-        safeEnqueue(controller, formatDataStreamLine('e', { finishReason, isContinued: false }));
-
-        closed = true;
-        controller.close();
-
-        await props.options?.onFinish?.({ text: accumulatedText, finishReason, usage });
       } catch (error) {
         if (flushTimer !== undefined) {
           clearTimeout(flushTimer);

@@ -193,15 +193,13 @@ describe('dashScopeStreamText wire format', () => {
   });
 
   it('emits an error part when the gateway responds with an error', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ error: { message: 'model not found' } }), {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      ),
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: 'model not found' } }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
     const result = dashScopeStreamText({
       model: 'nope',
@@ -215,5 +213,124 @@ describe('dashScopeStreamText wire format', () => {
     expect(parts).toHaveLength(1);
     expect(parts[0].type).toBe('error');
     expect(parts[0].value).toBe('model not found');
+
+    // 4xx is deterministic — never retried
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dashScopeStreamText resilience', () => {
+  const FAST_TIMEOUT_ENV = {
+    A2_SELF_BASE_URL: 'http://localhost:5173',
+    A2_INTERNAL_TOKEN: 'test-token',
+    A2_LLM_TTFB_TIMEOUT_MS: '50',
+  } as unknown as Env;
+
+  const successBody =
+    sseLine({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n';
+
+  function successResponse() {
+    return new Response(new TextEncoder().encode(successBody), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  }
+
+  it('retries once after a TTFB timeout and completes on the second attempt', async () => {
+    const fetchMock = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementationOnce(async () => successResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const onFinish = vi.fn();
+    const result = dashScopeStreamText({
+      model: 'glm-5.2',
+      maxTokens: 4096,
+      messages: [{ role: 'user', content: 'hi' }],
+      env: FAST_TIMEOUT_ENV,
+      options: { onFinish },
+    });
+
+    const parts = (await collectLines(result.toDataStream())).map((line) => parseDataStreamPart(line));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(parts.some((part) => part.type === 'error')).toBe(false);
+    expect(parts.filter((part) => part.type === 'text').map((part) => part.value).join('')).toBe('ok');
+    expect(parts[parts.length - 1].type).toBe('finish_step');
+    expect(onFinish).toHaveBeenCalledWith(expect.objectContaining({ text: 'ok', finishReason: 'stop' }));
+  });
+
+  it('retries a 5xx gateway response', async () => {
+    const fetchMock = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(async () => new Response('{"error":{"message":"overloaded"}}', { status: 503 }))
+      .mockImplementationOnce(async () => successResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = dashScopeStreamText({
+      model: 'glm-5.2',
+      maxTokens: 4096,
+      messages: [{ role: 'user', content: 'hi' }],
+      env: FAST_TIMEOUT_ENV,
+    });
+
+    const parts = (await collectLines(result.toDataStream())).map((line) => parseDataStreamPart(line));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(parts.filter((part) => part.type === 'text').map((part) => part.value).join('')).toBe('ok');
+  });
+
+  it('reports the failure with the attempt count after exhausting retries', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"error":{"message":"overloaded"}}', { status: 503 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = dashScopeStreamText({
+      model: 'glm-5.2',
+      maxTokens: 4096,
+      messages: [{ role: 'user', content: 'hi' }],
+      env: FAST_TIMEOUT_ENV,
+    });
+
+    const parts = (await collectLines(result.toDataStream())).map((line) => parseDataStreamPart(line));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(parts).toHaveLength(1);
+    expect(parts[0].type).toBe('error');
+    expect(parts[0].value).toBe('overloaded (after 2 attempts)');
+  });
+
+  it('does not retry a mid-stream stall once content has been emitted', async () => {
+    const encoder = new TextEncoder();
+    const stallingBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(sseLine({ choices: [{ delta: { content: 'partial' }, finish_reason: null }] })));
+        // never closes: upstream went silent mid-stream
+      },
+    });
+
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(stallingBody, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = dashScopeStreamText({
+      model: 'glm-5.2',
+      maxTokens: 4096,
+      messages: [{ role: 'user', content: 'hi' }],
+      env: FAST_TIMEOUT_ENV,
+    });
+
+    const parts = (await collectLines(result.toDataStream())).map((line) => parseDataStreamPart(line));
+
+    // replaying would duplicate the visible 'partial' text, so no retry
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const text = parts.filter((part) => part.type === 'text').map((part) => part.value).join('');
+    expect(text).toBe('partial');
+
+    const errorPart = parts.find((part) => part.type === 'error');
+    expect(errorPart?.value).toContain('no data from the LLM upstream within');
   });
 });
