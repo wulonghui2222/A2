@@ -66,6 +66,14 @@ export class BoltShell {
   #outputStream: ReadableStreamDefaultReader<string> | undefined;
   #shellInputStream: WritableStreamDefaultWriter<string> | undefined;
 
+  /*
+   * Buffer for OSC data that arrived in the same chunk as (but after) the
+   * matched waitCode. Without this, a subsequent waitTillOscCode call would
+   * miss OSC signals that were already consumed from the stream by the
+   * previous call (e.g. 'prompt' arriving in the same chunk as 'exit').
+   */
+  #pendingData = '';
+
   constructor() {
     this.#readyPromise = new Promise((resolve) => {
       this.#initialized = resolve;
@@ -111,11 +119,21 @@ export class BoltShell {
      *  this.#shellInputStream?.write('\x03');
      */
     this.terminal.input('\x03');
-    await this.waitTillOscCode('prompt');
 
+    /*
+     * Wait for the previous execution to complete *before* waiting for the
+     * prompt. The 'exit' OSC arrives before 'prompt', and both readers share
+     * the same #outputStream. If we wait for 'prompt' first, the two readers
+     * race for chunks and each consumes the other's OSC signal.
+     * By awaiting the previous execution first, the 'exit' reader consumes
+     * 'exit' and stashes any trailing 'prompt' into #pendingData, which the
+     * subsequent waitTillOscCode('prompt') picks up immediately.
+     */
     if (state && state.executionPrms) {
       await state.executionPrms;
     }
+
+    await this.waitTillOscCode('prompt');
 
     //start a new execution
     this.terminal.input(command.trim() + '\n');
@@ -195,7 +213,14 @@ export class BoltShell {
   }
 
   async waitTillOscCode(waitCode: string) {
-    let fullOutput = '';
+    /*
+     * Start with any data left over from the previous call (e.g. a 'prompt'
+     * OSC that arrived in the same chunk as the 'exit' the previous call was
+     * waiting for).
+     */
+    let fullOutput = this.#pendingData;
+    this.#pendingData = '';
+
     let exitCode: number = 0;
 
     if (!this.#outputStream) {
@@ -205,25 +230,44 @@ export class BoltShell {
     const tappedStream = this.#outputStream;
 
     while (true) {
+      /*
+       * Scan *all* OSC codes in the accumulated output, not just the first
+       * one in the latest chunk. The previous implementation used
+       * String.match() (non-global) which only returns the first match per
+       * call, silently dropping any second OSC that shared the same chunk —
+       * e.g. 'exit' followed by 'prompt' in a single read() result.
+       */
+      const oscRegex = /\x1b\]654;([^\x07=]+)=?((-?\d+):(\d+))?\x07/g;
+      let foundEnd = -1;
+
+      for (const match of fullOutput.matchAll(oscRegex)) {
+        const osc = match[1];
+        const code = match[4];
+
+        if (osc === 'exit') {
+          exitCode = parseInt(code, 10);
+        }
+
+        if (osc === waitCode) {
+          foundEnd = (match.index ?? 0) + match[0].length;
+          break;
+        }
+      }
+
+      if (foundEnd >= 0) {
+        // Stash any data after the matched OSC so the next call can see it.
+        this.#pendingData = fullOutput.slice(foundEnd);
+        fullOutput = fullOutput.slice(0, foundEnd);
+        break;
+      }
+
       const { value, done } = await tappedStream.read();
 
       if (done) {
         break;
       }
 
-      const text = value || '';
-      fullOutput += text;
-
-      // Check if command completion signal with exit code
-      const [, osc, , , code] = text.match(/\x1b\]654;([^\x07=]+)=?((-?\d+):(\d+))?\x07/) || [];
-
-      if (osc === 'exit') {
-        exitCode = parseInt(code, 10);
-      }
-
-      if (osc === waitCode) {
-        break;
-      }
+      fullOutput += value || '';
     }
 
     return { output: fullOutput, exitCode };

@@ -3,6 +3,7 @@ import { atom, map, type MapStore } from 'nanostores';
 import * as nodePath from 'node:path';
 import type { ActionAlert, BoltAction } from '~/types/actions';
 import { generationTelemetry } from '~/a2/telemetry';
+import { prepareStartRecovery } from '~/lib/runtime/snapshot-cache';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
@@ -111,6 +112,21 @@ export class ActionRunner {
     });
   }
 
+  /**
+   * replay-snapshot-cache (design D5 step 5): the restored snapshot already
+   * covers this action — mark it complete without executing. Not tapped into
+   * telemetry on purpose: a restored round simply has no install action.
+   */
+  markActionSkipped(actionId: string) {
+    const action = this.actions.get()[actionId];
+
+    if (!action) {
+      return;
+    }
+
+    this.#updateAction(actionId, { status: 'complete', executed: true });
+  }
+
   async runAction(data: ActionCallbackData, isStreaming: boolean = false) {
     const { actionId } = data;
     const action = this.actions.get()[actionId];
@@ -175,9 +191,18 @@ export class ActionRunner {
               this.#updateAction(actionId, { status: 'complete' });
               generationTelemetry.recordActionEnd(messageId, actionId, 'complete');
             })
-            .catch((err: Error) => {
+            .catch(async (err: Error) => {
               if (action.abortSignal.aborted) {
                 generationTelemetry.recordActionEnd(messageId, actionId, 'aborted');
+                return;
+              }
+
+              /*
+               * replay-snapshot-cache (design D5 step 6): a workspace restored
+               * from a snapshot may fail to start the dev server; run the
+               * skipped install once and retry before declaring failure.
+               */
+              if (await this.#trySnapshotStartRecovery(actionId, action)) {
                 return;
               }
 
@@ -194,6 +219,7 @@ export class ActionRunner {
                 title: 'Dev Server Failed',
                 description: err.header,
                 content: err.output,
+                source: 'terminal',
               });
             });
 
@@ -235,9 +261,10 @@ export class ActionRunner {
 
       this.onAlert?.({
         type: 'error',
-        title: 'Dev Server Failed',
+        title: 'Shell Command Failed',
         description: error.header,
         content: error.output,
+        source: 'terminal',
       });
 
       // re-throw the error to be caught in the promise chain
@@ -297,6 +324,51 @@ export class ActionRunner {
     }
 
     return resp;
+  }
+
+  /**
+   * replay-snapshot-cache (design D5 step 6): recovery for a restored
+   * workspace whose start action failed. Runs the skipped install, retries
+   * the start command once, and reports whether the failure was handled.
+   */
+  async #trySnapshotStartRecovery(actionId: string, action: ActionState): Promise<boolean> {
+    const shell = this.#shellTerminal();
+    await shell.ready();
+
+    if (!shell || !shell.terminal || !shell.process) {
+      return false;
+    }
+
+    const recovery = await prepareStartRecovery(async (command: string) => {
+      const resp = await shell.executeCommand(this.runnerId.get(), command, () => {
+        action.abort();
+      });
+
+      return resp?.exitCode;
+    });
+
+    if (!recovery.retry) {
+      return false;
+    }
+
+    generationTelemetry.markRestoreStartFailed();
+
+    try {
+      const resp = await shell.executeCommand(this.runnerId.get(), action.content, () => {
+        action.abort();
+      });
+
+      if (resp?.exitCode === 0) {
+        logger.info('snapshot start recovery succeeded (install + restart)');
+        this.#updateAction(actionId, { status: 'complete' });
+
+        return true;
+      }
+    } catch (error) {
+      logger.error('snapshot start recovery retry failed\n\n', error);
+    }
+
+    return false;
   }
 
   async #runFileAction(action: ActionState) {
