@@ -8,16 +8,12 @@ import { getSessionUser } from '~/a2/session.server';
 
 const UNAUTHENTICATED = () => json({ error: 'Authentication required.' }, { status: 401 });
 
-/** bolt-style slug collision handling: append -2, -3, ... until free. */
-async function allocateUrlId(base: string): Promise<string> {
-  let candidate = base;
-  let suffix = 2;
+/** Generate a 16-character random hex string (64 bits of entropy). */
+function generateUrlId(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
 
-  while (await prisma.project.findUnique({ where: { urlId: candidate }, select: { id: true } })) {
-    candidate = `${base}-${suffix++}`;
-  }
-
-  return candidate;
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -58,10 +54,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
   }
 
   const description = typeof body.description === 'string' && body.description.trim() ? body.description.trim() : undefined;
-  const requestedSlug = typeof body.urlId === 'string' && body.urlId.trim() ? body.urlId.trim() : `chat-${Date.now().toString(36)}`;
 
-  // A2: slugs are global (URL routing), so collisions get bolt-style suffixes.
-  const urlId = await allocateUrlId(requestedSlug);
+  // A2: urlId is a server-generated random hex string (no collision possible).
+  const urlId = generateUrlId();
   const project = await prisma.project.create({
     data: { urlId, description, userId: user.id },
     select: { id: true, urlId: true, description: true, createdAt: true, updatedAt: true },

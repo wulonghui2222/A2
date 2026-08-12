@@ -56,12 +56,12 @@ describe('GET /api/projects (loader)', () => {
   });
 
   it('lists own projects newest-first without message payloads', async () => {
-    await action({ request: makeRequest('POST', { urlId: 'list-a' }), params: {}, context } as any);
-    await action({ request: makeRequest('POST', { urlId: 'list-b' }), params: {}, context } as any);
+    const first: any = await (await action({ request: makeRequest('POST', {}), params: {}, context } as any)).json();
+    const second: any = await (await action({ request: makeRequest('POST', {}), params: {}, context } as any)).json();
 
-    // Bump list-a so ordering by updatedAt is deterministic.
-    const bumped = await testDb!.prisma.project.update({
-      where: { urlId: 'list-a' },
+    // Bump the first project so ordering by updatedAt is deterministic.
+    await testDb!.prisma.project.update({
+      where: { id: first.id },
       data: { description: 'bumped' },
     });
 
@@ -69,10 +69,10 @@ describe('GET /api/projects (loader)', () => {
     const projects = (await response.json()) as any[];
 
     expect(response.status).toBe(200);
-    expect(projects[0].urlId).toBe('list-a');
-    expect(projects.map((p) => p.urlId)).toContain('list-b');
+    expect(projects[0].id).toBe(first.id);
+    expect(projects.map((p) => p.id)).toContain(second.id);
     expect(projects.every((p) => !('messages' in p))).toBe(true);
-    expect(bumped.description).toBe('bumped');
+    expect(projects[0].description).toBe('bumped');
   });
 });
 
@@ -89,34 +89,27 @@ describe('POST /api/projects (action)', () => {
     expect(response.status).toBe(405);
   });
 
-  it('creates a project with the requested slug', async () => {
+  it('creates a project with a random 16-hex urlId', async () => {
     const response = await action({
-      request: makeRequest('POST', { urlId: 'demo', description: 'Demo ' }),
+      request: makeRequest('POST', { description: 'Demo' }),
       params: {},
       context,
     } as any);
     const project: any = await response.json();
 
     expect(response.status).toBe(201);
-    expect(project.urlId).toBe('demo');
+    expect(project.urlId).toMatch(/^[0-9a-f]{16}$/);
     expect(project.description).toBe('Demo');
     expect(project.id).toBeTruthy();
   });
 
-  it('appends bolt-style suffixes on slug collisions', async () => {
-    const second: any = await (await action({ request: makeRequest('POST', { urlId: 'demo' }), params: {}, context } as any)).json();
-    const third: any = await (await action({ request: makeRequest('POST', { urlId: 'demo' }), params: {}, context } as any)).json();
+  it('generates unique urlIds for each project (no collision)', async () => {
+    const a: any = await (await action({ request: makeRequest('POST'), params: {}, context } as any)).json();
+    const b: any = await (await action({ request: makeRequest('POST'), params: {}, context } as any)).json();
 
-    expect(second.urlId).toBe('demo-2');
-    expect(third.urlId).toBe('demo-3');
-  });
-
-  it('generates a slug when none is provided', async () => {
-    const response = await action({ request: makeRequest('POST'), params: {}, context } as any);
-    const project: any = await response.json();
-
-    expect(response.status).toBe(201);
-    expect(project.urlId).toMatch(/^chat-/);
+    expect(a.urlId).toMatch(/^[0-9a-f]{16}$/);
+    expect(b.urlId).toMatch(/^[0-9a-f]{16}$/);
+    expect(a.urlId).not.toBe(b.urlId);
   });
 
   it('scopes the list to the owning user', async () => {

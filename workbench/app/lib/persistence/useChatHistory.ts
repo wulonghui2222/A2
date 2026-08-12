@@ -9,7 +9,6 @@ import { logStore } from '~/lib/stores/logs'; // Import logStore
 import {
   getMessages,
   getNextId,
-  getUrlId,
   openDatabase,
   setMessages,
   duplicateChat,
@@ -133,37 +132,21 @@ export function useChatHistory() {
       }
 
       const { firstArtifact } = workbenchStore;
-      let targetUrlId = urlId;
-
-      if (!targetUrlId && firstArtifact?.id) {
-        targetUrlId = await getUrlId(db, firstArtifact.id);
-      }
 
       if (!description.get() && firstArtifact?.title) {
         description.set(firstArtifact?.title);
       }
 
       if (initialMessages.length === 0 && !chatId.get()) {
-        const nextId = await getNextId(db);
+        const next = await getNextId(db);
 
-        chatId.set(nextId);
-
-        if (!targetUrlId) {
-          navigateChat(nextId);
-        }
+        chatId.set(next.id);
+        setUrlId(next.urlId);
+        navigateChat(next.urlId);
       }
 
-      /*
-       * perf-report B5: slug uniqueness is resolved globally on the server,
-       * so adopt the canonical urlId it returns and keep the address bar
-       * loadable (the locally derived slug may collide with another account).
-       */
-      const savedUrlId = await setMessages(db, chatId.get() as string, messages, targetUrlId, description.get());
-
-      if (targetUrlId && savedUrlId && savedUrlId !== urlId) {
-        setUrlId(savedUrlId);
-        navigateChat(savedUrlId);
-      }
+      // urlId is server-generated and immutable; no need to pass it on PUT.
+      await setMessages(db, chatId.get() as string, messages, description.get());
     },
     duplicateCurrentChat: async (listItemId: string) => {
       if (!db || (!mixedId && !listItemId)) {

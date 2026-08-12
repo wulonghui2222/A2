@@ -119,7 +119,6 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
   const messages: any[] = hasMessages ? body.messages : [];
   const description =
     typeof body.description === 'string' && body.description.trim() ? body.description.trim() : project.description;
-  const urlId = typeof body.urlId === 'string' && body.urlId.trim() ? body.urlId.trim() : project.urlId;
 
   /*
    * A2 project-plaza (D2): optional file tree snapshot. Field absent means
@@ -144,52 +143,28 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
    * 50ms-throttled client writes never leave a half-written message list.
    * Snapshot-only saves (no messages field) skip the message rewrite.
    *
-   * perf-report B5: urlId is globally unique while the client-side dup check
-   * only sees its own projects, so deterministic LLM artifact slugs collide
-   * across accounts. Instead of failing the whole save with 409 (which then
-   * poisons every later save), try suffix candidates and fall back to the
-   * existing slug -- the messages must always land.
+   * urlId is a server-generated random hex string assigned at creation time;
+   * it never changes, so no collision resolution is needed on PUT.
    */
-  const applyWrite = async (nextUrlId: string) =>
-    prisma.$transaction([
-      ...(hasMessages
-        ? [
-            prisma.message.deleteMany({ where: { projectId: project.id } }),
-            prisma.message.createMany({
-              data: messages.map((message, seq) => ({
-                projectId: project.id,
-                seq,
-                role: typeof message?.role === 'string' ? message.role : 'assistant',
-                content: JSON.stringify(message),
-              })),
-            }),
-          ]
-        : []),
-      prisma.project.update({
-        where: { id: project.id },
-        data: { description, urlId: nextUrlId, ...(fileSnapshot !== undefined ? { fileSnapshot } : {}) },
-      }),
-    ]);
-
-  // The project's own slug is always writable, so this list always succeeds.
-  const urlIdCandidates =
-    urlId === project.urlId
-      ? [urlId]
-      : [urlId, ...Array.from({ length: 5 }, (_, index) => `${urlId}-${index + 2}`), project.urlId];
-
-  for (const candidate of urlIdCandidates) {
-    try {
-      await applyWrite(candidate);
-      break;
-    } catch (error: any) {
-      // P2002: slug grabbed by another project mid-flight; try the next candidate.
-      if (error?.code === 'P2002') {
-        continue;
-      }
-
-      throw error;
-    }
-  }
+  await prisma.$transaction([
+    ...(hasMessages
+      ? [
+          prisma.message.deleteMany({ where: { projectId: project.id } }),
+          prisma.message.createMany({
+            data: messages.map((message, seq) => ({
+              projectId: project.id,
+              seq,
+              role: typeof message?.role === 'string' ? message.role : 'assistant',
+              content: JSON.stringify(message),
+            })),
+          }),
+        ]
+      : []),
+    prisma.project.update({
+      where: { id: project.id },
+      data: { description, ...(fileSnapshot !== undefined ? { fileSnapshot } : {}) },
+    }),
+  ]);
 
   const updated = await prisma.project.findUnique({
     where: { id: project.id },

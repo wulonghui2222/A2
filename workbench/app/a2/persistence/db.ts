@@ -135,8 +135,8 @@ export async function getMessagesByUrlId(db: A2DbHandle, id: string): Promise<Ch
 }
 
 interface QueuedSave {
-  execute: () => Promise<string | undefined>;
-  resolve: (urlId: string | undefined) => void;
+  execute: () => Promise<void>;
+  resolve: () => void;
   reject: (error: unknown) => void;
 }
 
@@ -165,11 +165,12 @@ async function drainSaveQueue(): Promise<void> {
       saveQueue.length = 0;
 
       for (const entry of superseded) {
-        entry.resolve(undefined);
+        entry.resolve();
       }
 
       try {
-        latest.resolve(await latest.execute());
+        await latest.execute();
+        latest.resolve();
       } catch (error) {
         latest.reject(error);
       }
@@ -183,20 +184,18 @@ export function setMessages(
   _db: A2DbHandle,
   id: string,
   messages: Message[],
-  urlId?: string,
   description?: string,
   timestamp?: string,
-): Promise<string | undefined> {
+): Promise<void> {
   if (timestamp && isNaN(Date.parse(timestamp))) {
     throw new Error('Invalid timestamp');
   }
 
-  const execute = async (): Promise<string | undefined> => {
+  const execute = async (): Promise<void> => {
     const fileSnapshot = await collectFileSnapshot();
 
     const response = await apiRequest('PUT', `${API}/${encodeURIComponent(id)}`, {
       messages,
-      ...(urlId ? { urlId } : {}),
       ...(description ? { description } : {}),
       ...(fileSnapshot !== undefined ? { fileSnapshot } : {}),
     });
@@ -208,17 +207,9 @@ export function setMessages(
     if (!response.ok) {
       throw new Error(`Failed to save chat (${response.status})`);
     }
-
-    /*
-     * perf-report B5: the server resolves slug collisions globally; surface the
-     * canonical urlId so the client can adopt it and keep its address bar valid.
-     */
-    const saved = (await response.json().catch(() => undefined)) as { urlId?: string } | undefined;
-
-    return saved?.urlId;
   };
 
-  return new Promise<string | undefined>((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     saveQueue.push({ execute, resolve, reject });
     void drainSaveQueue();
   });
@@ -318,8 +309,8 @@ export async function deleteById(_db: A2DbHandle, id: string): Promise<void> {
   }
 }
 
-/** bolt allocates numeric ids client-side; the server allocates on POST. */
-export async function getNextId(_db: A2DbHandle): Promise<string> {
+/** Server allocates id and urlId on POST; returns both for immediate use. */
+export async function getNextId(_db: A2DbHandle): Promise<{ id: string; urlId: string }> {
   const response = await apiRequest('POST', API, {});
 
   if (!response.ok) {
@@ -328,29 +319,7 @@ export async function getNextId(_db: A2DbHandle): Promise<string> {
 
   const project: ProjectSummary = await response.json();
 
-  return project.id;
-}
-
-export async function getUrlId(db: A2DbHandle, id: string): Promise<string> {
-  const idList = await getUrlIds(db);
-
-  if (!idList.includes(id)) {
-    return id;
-  }
-
-  let i = 2;
-
-  while (idList.includes(`${id}-${i}`)) {
-    i++;
-  }
-
-  return `${id}-${i}`;
-}
-
-async function getUrlIds(db: A2DbHandle): Promise<string[]> {
-  const chats = await getAll(db);
-
-  return chats.map((chat) => chat.urlId).filter(Boolean) as string[];
+  return { id: project.id, urlId: project.urlId };
 }
 
 export async function forkChat(db: A2DbHandle, chatId: string, messageId: string): Promise<string> {
@@ -394,7 +363,7 @@ export async function createChatFromMessages(
 
   const project: ProjectSummary = await response.json();
 
-  await setMessages(db, project.id, messages, undefined, description);
+  await setMessages(db, project.id, messages, description);
 
   // Navigation target, same as bolt (returns the urlId, not the id).
   return project.urlId;
@@ -411,7 +380,7 @@ export async function updateChatDescription(db: A2DbHandle, id: string, descript
     throw new Error('Description cannot be empty');
   }
 
-  await setMessages(db, id, chat.messages, chat.urlId, description, chat.timestamp);
+  await setMessages(db, id, chat.messages, description, chat.timestamp);
 }
 
 // Re-exported so `~/lib/persistence` consumers keep a stable import surface.

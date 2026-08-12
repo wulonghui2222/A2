@@ -123,19 +123,16 @@ describe('GET / PUT round-trip (WB-06)', () => {
     expect(response.status).toBe(413);
   });
 
-  it('auto-suffixes a colliding slug and still saves the messages (perf-report B5)', async () => {
-    await testDb!.prisma.project.create({ data: { urlId: 'taken-slug', userId: 1 } });
-
+  it('ignores urlId changes on PUT (urlId is immutable after creation)', async () => {
     const messages = [{ id: 'm1', role: 'user', content: 'hello' }];
-    const response = await action(args('PUT', projectId, { urlId: 'taken-slug', messages }));
+    const response = await action(args('PUT', projectId, { urlId: 'some-other-slug', messages }));
 
     expect(response.status).toBe(200);
-    expect(((await response.json()) as any).urlId).toBe('taken-slug-2');
 
-    // a slug collision must never lose the save: messages and the new slug both land
+    // urlId should remain the original 'crud-project', not the requested change
     const detail = (await (await loader(args('GET', projectId))).json()) as any;
 
-    expect(detail.urlId).toBe('taken-slug-2');
+    expect(detail.urlId).toBe('crud-project');
     expect(detail.messages).toHaveLength(1);
   });
 
