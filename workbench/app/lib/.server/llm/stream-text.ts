@@ -1,5 +1,7 @@
 import { convertToCoreMessages, streamText as _streamText } from 'ai';
 import { MAX_TOKENS } from './constants';
+import { dashScopeStreamText, isDashScopeDefault } from './dashscope-stream';
+import { A2_ENABLE_BYOK } from '~/a2/config';
 import { getSystemPrompt } from '~/lib/common/prompts/prompts';
 import {
   DEFAULT_MODEL,
@@ -34,6 +36,18 @@ interface Message {
 export type Messages = Message[];
 
 export type StreamingOptions = Omit<Parameters<typeof _streamText>[0], 'model'>;
+
+/*
+ * dashscope-reasoning-stream (task 4.2): union return shape. api.chat.ts only
+ * consumes toDataStream(), which both paths provide; the dashscope variant
+ * emits the wire format directly (design D2).
+ */
+export interface StreamTextCallResult {
+  toDataStream: (options?: { getErrorMessage?: (error: unknown) => string }) => ReadableStream<Uint8Array>;
+
+  /** Plain answer text for the non-chat routes (api.enhancer / api.llmcall). */
+  textStream: ReadableStream<string>;
+}
 
 export interface File {
   type: 'file';
@@ -160,7 +174,13 @@ export async function streamText(props: {
    * content text-delta arrives (reasoning chunks are not text deltas).
    */
   onFirstTextDelta?: () => void;
-}) {
+
+  /*
+   * dashscope-reasoning-stream (task 2.3/5.1): invoked once, when the first
+   * reasoning_content delta is parsed from the upstream SSE.
+   */
+  onFirstReasoningToken?: () => void;
+}): Promise<StreamTextCallResult> {
   const {
     messages,
     env: serverEnv,
@@ -171,6 +191,7 @@ export async function streamText(props: {
     promptId,
     contextOptimization,
     onFirstTextDelta,
+    onFirstReasoningToken,
   } = props;
 
   // console.log({serverEnv});
@@ -241,6 +262,29 @@ export async function streamText(props: {
   }
 
   logger.info(`Sending llm call to ${provider.name} with model ${modelDetails.name}`);
+
+  /*
+   * dashscope-reasoning-stream (task 4.1): the platform default model goes
+   * through dashScopeStreamText, which parses the gateway SSE itself so
+   * reasoning_content survives (design D1). BYOK paths keep _streamText.
+   * Task 4.2: the wrapper exposes the same toDataStream() call site.
+   */
+  if (!A2_ENABLE_BYOK && isDashScopeDefault(provider.name, modelDetails.name)) {
+    return dashScopeStreamText({
+      model: modelDetails.name,
+      system: systemPrompt,
+      maxTokens: dynamicMaxTokens,
+      messages: processedMessages as Array<{ role: 'user' | 'assistant'; content: string }>,
+      env: serverEnv,
+      options: {
+        onFinish: options?.onFinish as
+          | ((event: { text: string; finishReason: string; usage?: any }) => void | Promise<void>)
+          | undefined,
+      },
+      onFirstTextDelta,
+      onFirstReasoningToken,
+    });
+  }
 
   let firstTextDeltaReported = false;
 

@@ -261,22 +261,41 @@ export const ChatImpl = memo(
     });
 
     /*
-     * chat-response-stats (design D2): waiting → streaming as soon as visible
-     * assistant content starts growing (reasoning chunks do not render).
+     * chat-response-stats (design D2): waiting → thinking → streaming. With
+     * dashscope-reasoning-stream, the first reasoning annotation marks the
+     * thinking state (TTRT tap); the first visible content delta marks
+     * streaming (TTFT tap).
      */
     useEffect(() => {
-      if (requestStatus !== 'waiting') {
+      if (requestStatus !== 'waiting' && requestStatus !== 'thinking') {
         return;
       }
 
       const last = messages[messages.length - 1];
 
-      if (last && last.role === 'assistant' && (last.content?.length || 0) > 0) {
+      if (!last || last.role !== 'assistant') {
+        return;
+      }
+
+      if ((last.content?.length || 0) > 0) {
         setRequestStatus('streaming');
 
         // add-generation-telemetry: bind the round to the assistant message and mark the first visible token
         generationTelemetry.startRound(last.id);
         generationTelemetry.markFirstToken();
+
+        return;
+      }
+
+      const hasReasoning = ((last.annotations ?? []) as Array<{ type?: string }>).some(
+        (annotation) => annotation?.type === 'reasoning',
+      );
+
+      if (requestStatus === 'waiting' && hasReasoning) {
+        setRequestStatus('thinking');
+
+        // dashscope-reasoning-stream (task 8.1): TTRT tap, paired with the thinking transition
+        generationTelemetry.markFirstReasoningToken(last.id);
       }
     }, [requestStatus, messages]);
     useEffect(() => {

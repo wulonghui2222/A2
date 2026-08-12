@@ -17,6 +17,7 @@ import {
  */
 
 const COLORS = {
+  thinking: '#14b8a6',
   wait: '#6b7280',
   stream: '#3b82f6',
   file: '#22c55e',
@@ -59,6 +60,9 @@ interface DisplayRound {
   persisted: boolean;
   startedAt: number;
   totalMs: number;
+
+  /** dashscope-reasoning-stream (task 8.2): TTRT phase, renders before wait. */
+  thinkingMs?: number;
   waitMs?: number;
   streamMs?: number;
   tailMs?: number;
@@ -89,6 +93,10 @@ function actionColor(action: TelemetryActionRecord): string {
 
 /** Normalize a live collector round into the panel display model. */
 function fromLiveRound(round: TelemetryRound): DisplayRound {
+  const thinkingMs =
+    round.firstReasoningTokenAt !== undefined
+      ? Math.max(0, round.firstReasoningTokenAt - round.startedAt)
+      : undefined;
   const waitMs = round.firstTokenAt !== undefined ? Math.max(0, round.firstTokenAt - round.startedAt) : undefined;
   const streamMs =
     round.streamEndedAt !== undefined
@@ -124,6 +132,7 @@ function fromLiveRound(round: TelemetryRound): DisplayRound {
     persisted: false,
     startedAt: round.startedAt,
     totalMs,
+    thinkingMs,
     waitMs,
     streamMs,
     tailMs,
@@ -171,6 +180,7 @@ function fromAnnotation(value: TelemetryAnnotationValue, index: number): Display
     persisted: true,
     startedAt: value.startedAt,
     totalMs,
+    thinkingMs: phases.thinkingMs,
     waitMs: phases.waitMs,
     streamMs: phases.streamMs,
     tailMs: phases.tailMs,
@@ -244,15 +254,32 @@ function RoundRow({ round }: { round: DisplayRound }) {
         <span>总 {formatMs(round.totalMs)}</span>
       </div>
 
-      {/* phase bar: wait / stream / tail */}
+      {/* phase bar: thinking / wait / stream / tail */}
       <div style={{ position: 'relative', height: 10, background: '#1f232a', borderRadius: 4, marginBottom: 4 }}>
+        {round.thinkingMs !== undefined && (
+          <div
+            title={`思考 ${formatMs(round.thinkingMs)}`}
+            style={{
+              position: 'absolute',
+              left: 0,
+              width: width(round.thinkingMs),
+              height: '100%',
+              background: COLORS.thinking,
+              borderRadius: 4,
+            }}
+          />
+        )}
         {round.waitMs !== undefined && (
           <div
             title={`等待 ${formatMs(round.waitMs)}`}
             style={{
               position: 'absolute',
-              left: 0,
-              width: width(round.waitMs),
+              left: pct(round.thinkingMs ?? 0),
+              /*
+               * waitMs is measured from request start; the thinking segment
+               * already covers the first part, so only the remainder renders.
+               */
+              width: width(Math.max(0, round.waitMs - (round.thinkingMs ?? 0))),
               height: '100%',
               background: COLORS.wait,
               borderRadius: 4,
@@ -325,6 +352,9 @@ function RoundRow({ round }: { round: DisplayRound }) {
 
       {/* footer stats */}
       <div style={{ display: 'flex', gap: 10, marginTop: 4, color: '#9ca3af' }}>
+        {round.thinkingMs !== undefined && (
+          <span style={{ color: COLORS.thinking }}>思考 {formatMs(round.thinkingMs)}</span>
+        )}
         <span>等待 {formatMs(round.waitMs)}</span>
         <span>流式 {formatMs(round.streamMs)}</span>
         <span>尾巴 {formatMs(round.tailMs)}</span>

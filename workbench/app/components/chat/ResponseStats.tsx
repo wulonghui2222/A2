@@ -3,8 +3,10 @@ import { memo, useEffect, useState } from 'react';
 /*
  * chat-response-stats (design D2): per-request lifecycle derived from useChat
  * signals (send / onResponse / first content delta / onFinish / onError).
+ * dashscope-reasoning-stream inserts `thinking` between waiting and streaming
+ * when the first reasoning annotation arrives (WB-09: waiting = 等待响应).
  */
-export type RequestStatus = 'idle' | 'submitting' | 'waiting' | 'streaming' | 'finished' | 'error';
+export type RequestStatus = 'idle' | 'submitting' | 'waiting' | 'thinking' | 'streaming' | 'finished' | 'error';
 
 interface ResponseStatsProps {
   status: RequestStatus;
@@ -26,7 +28,7 @@ function estimateTokens(contentLength: number) {
 export const ResponseStats = memo(({ status, startedAt, contentLength = 0 }: ResponseStatsProps) => {
   const [now, setNow] = useState(() => Date.now());
 
-  const live = (status === 'waiting' || status === 'streaming') && startedAt !== undefined;
+  const live = (status === 'waiting' || status === 'thinking' || status === 'streaming') && startedAt !== undefined;
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -56,6 +58,14 @@ export const ResponseStats = memo(({ status, startedAt, contentLength = 0 }: Res
   if (status === 'waiting') {
     return (
       <div className="text-sm text-bolt-elements-textSecondary" data-testid="response-stats-waiting">
+        等待响应… {elapsedLabel}
+      </div>
+    );
+  }
+
+  if (status === 'thinking') {
+    return (
+      <div className="text-sm text-bolt-elements-textSecondary" data-testid="response-stats-thinking">
         思考中… {elapsedLabel}
       </div>
     );

@@ -6,6 +6,13 @@ import { A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
 interface AssistantMessageProps {
   content: string;
   annotations?: JSONValue[];
+
+  /**
+   * dashscope-reasoning-stream (task 7.4): true while this message is the
+   * live assistant message during thinking/streaming — the reasoning panel
+   * auto-expands only then; reloaded messages stay collapsed.
+   */
+  isLiveMessage?: boolean;
 }
 
 /*
@@ -14,6 +21,7 @@ interface AssistantMessageProps {
  */
 interface UsageTiming {
   startedAt: number;
+  firstReasoningTokenAt?: number;
   firstVisibleTokenAt?: number;
   endedAt: number;
   segmentCount: number;
@@ -29,10 +37,19 @@ function formatSeconds(milliseconds: number) {
   return `${(milliseconds / 1000).toFixed(1)}s`;
 }
 
-export const AssistantMessage = memo(({ content, annotations }: AssistantMessageProps) => {
+export const AssistantMessage = memo(({ content, annotations, isLiveMessage = false }: AssistantMessageProps) => {
   const filteredAnnotations = (annotations?.filter(
     (annotation: JSONValue) => annotation && typeof annotation === 'object' && Object.keys(annotation).includes('type'),
   ) || []) as { type: string; value: any }[];
+
+  /*
+   * dashscope-reasoning-stream (task 7.1): reasoning arrives as throttled
+   * `8:` annotations; concatenate the deltas into the full thinking text.
+   */
+  const reasoningText = filteredAnnotations
+    .filter((annotation) => annotation.type === 'reasoning')
+    .map((annotation) => (annotation.value?.text as string | undefined) ?? '')
+    .join('');
 
   const usage: {
     completionTokens: number;
@@ -56,6 +73,10 @@ export const AssistantMessage = memo(({ content, annotations }: AssistantMessage
   if (timing) {
     const totalMs = timing.endedAt - timing.startedAt;
     const parts: string[] = [];
+
+    if (timing.firstReasoningTokenAt !== undefined) {
+      parts.push(`思考 ${formatSeconds(timing.firstReasoningTokenAt - timing.startedAt)}`);
+    }
 
     if (timing.firstVisibleTokenAt !== undefined) {
       parts.push(`首字 ${formatSeconds(timing.firstVisibleTokenAt - timing.startedAt)}`);
@@ -82,6 +103,26 @@ export const AssistantMessage = memo(({ content, annotations }: AssistantMessage
         <div className="text-sm text-bolt-elements-icon-error mb-2" data-testid="response-stats-error">
           请求失败：{errorStatus.message}
         </div>
+      )}
+      {/*
+       * dashscope-reasoning-stream (tasks 7.2/7.3): collapsible thinking
+       * panel. `open` is only controlled while the message is live, so
+       * historical/reloaded panels stay collapsed by default.
+       */}
+      {reasoningText.length > 0 && (
+        <details
+          open={isLiveMessage || undefined}
+          className="mb-3 rounded-lg bg-bolt-elements-background-depth-2 px-3 py-2"
+          data-testid="reasoning-panel"
+        >
+          <summary className="cursor-pointer text-xs text-bolt-elements-textSecondary select-none">思考过程</summary>
+          <div
+            className="mt-2 max-h-60 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-bolt-elements-textTertiary"
+            data-testid="reasoning-content"
+          >
+            {reasoningText}
+          </div>
+        </details>
       )}
       <Markdown html>{content}</Markdown>
       {/*

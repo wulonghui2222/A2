@@ -86,7 +86,15 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
                   {isUserMessage ? (
                     <UserMessage content={content} />
                   ) : (
-                    <AssistantMessage content={content} annotations={message.annotations} />
+                    <AssistantMessage
+                      content={content}
+                      annotations={message.annotations}
+                      /*
+                       * dashscope-reasoning-stream (task 7.4): the reasoning
+                       * panel auto-expands only on the live assistant message.
+                       */
+                      isLiveMessage={isLast && (requestStatus === 'thinking' || requestStatus === 'streaming')}
+                    />
                   )}
                 </div>
                 {!isUserMessage && (
@@ -123,7 +131,7 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
       {isStreaming && (
         <div className="text-center w-full text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-4xl mt-4"></div>
       )}
-      {(requestStatus === 'waiting' || requestStatus === 'streaming') && (
+      {(requestStatus === 'waiting' || requestStatus === 'thinking' || requestStatus === 'streaming') && (
         <div className="text-center w-full mt-2">
           <ResponseStats status={requestStatus} startedAt={requestStartedAt} contentLength={streamingContentLength} />
         </div>

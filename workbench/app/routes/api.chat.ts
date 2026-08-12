@@ -73,8 +73,16 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
   let segmentCount = 1;
   let firstVisibleTokenAt: number | undefined;
 
+  // dashscope-reasoning-stream (task 5.1 / RS-04): first reasoning_content
+  // delta across all segments (TTRT).
+  let firstReasoningTokenAt: number | undefined;
+
   const onFirstTextDelta = () => {
     firstVisibleTokenAt ??= Date.now();
+  };
+
+  const onFirstReasoningToken = () => {
+    firstReasoningTokenAt ??= Date.now();
   };
 
   try {
@@ -111,6 +119,13 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                           endedAt: Date.now(),
                           segmentCount,
                           ...(firstVisibleTokenAt !== undefined ? { firstVisibleTokenAt } : {}),
+
+                          /*
+                           * dashscope-reasoning-stream (task 5.2 / RS-04):
+                           * omitted entirely when the model produced no
+                           * reasoning content.
+                           */
+                          ...(firstReasoningTokenAt !== undefined ? { firstReasoningTokenAt } : {}),
                         },
                       }
                     : {}),
@@ -157,6 +172,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           promptId,
           contextOptimization,
           onFirstTextDelta,
+          onFirstReasoningToken,
         });
 
         stream.switchSource(
@@ -183,6 +199,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
       promptId,
       contextOptimization,
       onFirstTextDelta,
+      onFirstReasoningToken,
     });
 
     stream.switchSource(

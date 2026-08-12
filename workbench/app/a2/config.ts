@@ -5,7 +5,7 @@
  * (.dev.vars -> BAILIAN_API_KEY, injected by the /api/llm gateway).
  */
 export const A2_PLATFORM_PROVIDER = 'OpenAILike';
-export const A2_DEFAULT_MODEL = 'qwen3.8-max';
+export const A2_DEFAULT_MODEL = 'glm-5.2';
 
 /*
  * A2 (task 2.4): the workbench talks to the platform gateway, not to Bailian
