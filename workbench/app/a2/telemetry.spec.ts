@@ -77,6 +77,11 @@ describe('generation telemetry collector', () => {
       generationTelemetry.startRound('m-replay');
       await generationTelemetry.streamEnd('m-replay');
 
+      // perf-report B3: an action-less replay round waits out the settle window first
+      expect(generationTelemetry.getRound('m-replay')!.status).toBe('stream-ended');
+
+      await vi.advanceTimersByTimeAsync(30_001);
+
       expect(generationTelemetry.getRound('m-replay')!.status).toBe('finalized');
       expect(persist).not.toHaveBeenCalled();
     });
@@ -232,6 +237,72 @@ describe('generation telemetry collector', () => {
       await streamEnded;
 
       expect(generationTelemetry.getRound('m1')!.status).toBe('finalized');
+    });
+
+    it('does not let a running start action block the drain (perf-report B1)', async () => {
+      generationTelemetry.setRoundSource('fresh');
+      generationTelemetry.startRound('m1', 0);
+
+      // the dev server runs indefinitely; it must not keep the round stuck
+      generationTelemetry.recordActionStart('m1', 'a0', 'start', 'npm run dev');
+
+      await generationTelemetry.streamEnd('m1');
+
+      expect(generationTelemetry.getRound('m1')!.status).toBe('draining');
+
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      const round = generationTelemetry.getRound('m1')!;
+      expect(round.status).toBe('finalized');
+      expect(round.preview.timeout).toBe(true);
+    });
+
+    it('keeps an install-only round in the grace window for the queued start action (perf-report B2)', async () => {
+      generationTelemetry.setRoundSource('fresh');
+      generationTelemetry.startRound('m1', 0);
+      generationTelemetry.recordActionStart('m1', 'a0', 'shell', 'npm install');
+      generationTelemetry.recordActionEnd('m1', 'a0', 'complete', 0);
+
+      await generationTelemetry.streamEnd('m1');
+
+      // no start action recorded yet, but the install marks a bootstrap round
+      expect(generationTelemetry.getRound('m1')!.status).toBe('draining');
+
+      // the start action dequeues late and the preview opens inside the window
+      generationTelemetry.recordActionStart('m1', 'a1', 'start', 'npm run dev');
+
+      vi.setSystemTime(new Date('2026-08-11T12:00:08Z'));
+      generationTelemetry.previewPortChanged(3000, true);
+
+      const round = generationTelemetry.getRound('m1')!;
+      expect(round.status).toBe('finalized');
+      expect(round.preview.openedAt).toBeDefined();
+      expect(round.preview.timeout).toBeUndefined();
+    });
+
+    it('keeps a replay round open while actions trickle in behind the queue (perf-report B3)', async () => {
+      generationTelemetry.setRoundSource('replay');
+      generationTelemetry.startRound('m1', 0);
+
+      await generationTelemetry.streamEnd('m1');
+      expect(generationTelemetry.getRound('m1')!.status).toBe('stream-ended');
+
+      // a fast file action completes while install/start are still queued: must NOT finalize yet
+      generationTelemetry.recordActionStart('m1', 'a0', 'file');
+      generationTelemetry.recordActionEnd('m1', 'a0', 'complete');
+      expect(generationTelemetry.getRound('m1')!.status).toBe('stream-ended');
+
+      // install lands late: the settle window yields to the normal drain/grace flow
+      generationTelemetry.recordActionStart('m1', 'a1', 'shell', 'npm install');
+      generationTelemetry.recordActionEnd('m1', 'a1', 'complete', 0);
+
+      expect(generationTelemetry.getRound('m1')!.status).toBe('draining');
+
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      const round = generationTelemetry.getRound('m1')!;
+      expect(round.status).toBe('finalized');
+      expect(round.actions).toHaveLength(2);
     });
   });
 

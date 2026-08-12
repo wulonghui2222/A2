@@ -139,13 +139,19 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
     fileSnapshot = body.fileSnapshot;
   }
 
-  try {
-    /*
-     * Idempotent full replace: delete-then-insert inside one transaction so the
-     * 50ms-throttled client writes never leave a half-written message list.
-     * Snapshot-only saves (no messages field) skip the message rewrite.
-     */
-    await prisma.$transaction([
+  /*
+   * Idempotent full replace: delete-then-insert inside one transaction so the
+   * 50ms-throttled client writes never leave a half-written message list.
+   * Snapshot-only saves (no messages field) skip the message rewrite.
+   *
+   * perf-report B5: urlId is globally unique while the client-side dup check
+   * only sees its own projects, so deterministic LLM artifact slugs collide
+   * across accounts. Instead of failing the whole save with 409 (which then
+   * poisons every later save), try suffix candidates and fall back to the
+   * existing slug -- the messages must always land.
+   */
+  const applyWrite = async (nextUrlId: string) =>
+    prisma.$transaction([
       ...(hasMessages
         ? [
             prisma.message.deleteMany({ where: { projectId: project.id } }),
@@ -161,16 +167,28 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
         : []),
       prisma.project.update({
         where: { id: project.id },
-        data: { description, urlId, ...(fileSnapshot !== undefined ? { fileSnapshot } : {}) },
+        data: { description, urlId: nextUrlId, ...(fileSnapshot !== undefined ? { fileSnapshot } : {}) },
       }),
     ]);
-  } catch (error: any) {
-    // P2002: urlId grabbed by another project mid-flight.
-    if (error?.code === 'P2002') {
-      return json({ error: 'Slug already in use.' }, { status: 409 });
-    }
 
-    throw error;
+  // The project's own slug is always writable, so this list always succeeds.
+  const urlIdCandidates =
+    urlId === project.urlId
+      ? [urlId]
+      : [urlId, ...Array.from({ length: 5 }, (_, index) => `${urlId}-${index + 2}`), project.urlId];
+
+  for (const candidate of urlIdCandidates) {
+    try {
+      await applyWrite(candidate);
+      break;
+    } catch (error: any) {
+      // P2002: slug grabbed by another project mid-flight; try the next candidate.
+      if (error?.code === 'P2002') {
+        continue;
+      }
+
+      throw error;
+    }
   }
 
   const updated = await prisma.project.findUnique({

@@ -134,34 +134,94 @@ export async function getMessagesByUrlId(db: A2DbHandle, id: string): Promise<Ch
   return getMessages(db, id);
 }
 
-export async function setMessages(
+interface QueuedSave {
+  execute: () => Promise<string | undefined>;
+  resolve: (urlId: string | undefined) => void;
+  reject: (error: unknown) => void;
+}
+
+const saveQueue: QueuedSave[] = [];
+let saveRunning = false;
+
+/*
+ * perf-report B4: streaming triggers many saves per second and they used to
+ * fly concurrently, so the final DB state could come from an older request.
+ * Serialize saves latest-wins: while one PUT is in flight, any backlog is
+ * collapsed to the newest entry (older ones resolve as superseded), which
+ * both preserves order and de-floods the server.
+ */
+async function drainSaveQueue(): Promise<void> {
+  if (saveRunning) {
+    return;
+  }
+
+  saveRunning = true;
+
+  try {
+    while (saveQueue.length > 0) {
+      const latest = saveQueue[saveQueue.length - 1];
+      const superseded = saveQueue.slice(0, -1);
+
+      saveQueue.length = 0;
+
+      for (const entry of superseded) {
+        entry.resolve(undefined);
+      }
+
+      try {
+        latest.resolve(await latest.execute());
+      } catch (error) {
+        latest.reject(error);
+      }
+    }
+  } finally {
+    saveRunning = false;
+  }
+}
+
+export function setMessages(
   _db: A2DbHandle,
   id: string,
   messages: Message[],
   urlId?: string,
   description?: string,
   timestamp?: string,
-): Promise<void> {
+): Promise<string | undefined> {
   if (timestamp && isNaN(Date.parse(timestamp))) {
     throw new Error('Invalid timestamp');
   }
 
-  const fileSnapshot = await collectFileSnapshot();
+  const execute = async (): Promise<string | undefined> => {
+    const fileSnapshot = await collectFileSnapshot();
 
-  const response = await apiRequest('PUT', `${API}/${encodeURIComponent(id)}`, {
-    messages,
-    ...(urlId ? { urlId } : {}),
-    ...(description ? { description } : {}),
-    ...(fileSnapshot !== undefined ? { fileSnapshot } : {}),
+    const response = await apiRequest('PUT', `${API}/${encodeURIComponent(id)}`, {
+      messages,
+      ...(urlId ? { urlId } : {}),
+      ...(description ? { description } : {}),
+      ...(fileSnapshot !== undefined ? { fileSnapshot } : {}),
+    });
+
+    if (response.status === 404) {
+      throw new Error('Chat not found');
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to save chat (${response.status})`);
+    }
+
+    /*
+     * perf-report B5: the server resolves slug collisions globally; surface the
+     * canonical urlId so the client can adopt it and keep its address bar valid.
+     */
+    const saved = (await response.json().catch(() => undefined)) as { urlId?: string } | undefined;
+
+    return saved?.urlId;
+  };
+
+  return new Promise<string | undefined>((resolve, reject) => {
+    saveQueue.push({ execute, resolve, reject });
+    void drainSaveQueue();
   });
-
-  if (response.status === 404) {
-    throw new Error('Chat not found');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Failed to save chat (${response.status})`);
-  }
 }
 
 /**

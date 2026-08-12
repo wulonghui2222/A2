@@ -73,10 +73,25 @@ export function useMessageParser() {
 
     for (const [index, message] of messages.entries()) {
       if (message.role === 'assistant') {
+        /*
+         * perf-report B3: open the replay round BEFORE parsing so every
+         * re-executed action (tapped with its message id) attaches to the
+         * right round instead of being dropped by the finalized check.
+         */
+        if (!isLoading) {
+          generationTelemetry.startRound(message.id);
+        }
+
         const newParsedContent = messageParser.parse(message.id, message.content);
 
         // add-generation-telemetry: a replayed message is fully parsed here; finalization waits for its action queue to drain
         if (!isLoading) {
+          /*
+           * perf-report B3: replay actions are re-queued asynchronously and
+           * land shortly AFTER this call, so streamEnd alone must not decide
+           * finalization yet -- proceedAfterDrain grants replay rounds a
+           * settle window that re-arms until the actions have arrived.
+           */
           void generationTelemetry.streamEnd(message.id);
         }
 

@@ -123,12 +123,20 @@ describe('GET / PUT round-trip (WB-06)', () => {
     expect(response.status).toBe(413);
   });
 
-  it('returns 409 when the slug collides with another project', async () => {
+  it('auto-suffixes a colliding slug and still saves the messages (perf-report B5)', async () => {
     await testDb!.prisma.project.create({ data: { urlId: 'taken-slug', userId: 1 } });
 
-    const response = await action(args('PUT', projectId, { urlId: 'taken-slug' }));
+    const messages = [{ id: 'm1', role: 'user', content: 'hello' }];
+    const response = await action(args('PUT', projectId, { urlId: 'taken-slug', messages }));
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as any).urlId).toBe('taken-slug-2');
+
+    // a slug collision must never lose the save: messages and the new slug both land
+    const detail = (await (await loader(args('GET', projectId))).json()) as any;
+
+    expect(detail.urlId).toBe('taken-slug-2');
+    expect(detail.messages).toHaveLength(1);
   });
 
   it('returns 400 for invalid JSON', async () => {

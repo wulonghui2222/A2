@@ -105,12 +105,10 @@ export function useChatHistory() {
       }
 
       const { firstArtifact } = workbenchStore;
+      let targetUrlId = urlId;
 
-      if (!urlId && firstArtifact?.id) {
-        const urlId = await getUrlId(db, firstArtifact.id);
-
-        navigateChat(urlId);
-        setUrlId(urlId);
+      if (!targetUrlId && firstArtifact?.id) {
+        targetUrlId = await getUrlId(db, firstArtifact.id);
       }
 
       if (!description.get() && firstArtifact?.title) {
@@ -122,12 +120,22 @@ export function useChatHistory() {
 
         chatId.set(nextId);
 
-        if (!urlId) {
+        if (!targetUrlId) {
           navigateChat(nextId);
         }
       }
 
-      await setMessages(db, chatId.get() as string, messages, urlId, description.get());
+      /*
+       * perf-report B5: slug uniqueness is resolved globally on the server,
+       * so adopt the canonical urlId it returns and keep the address bar
+       * loadable (the locally derived slug may collide with another account).
+       */
+      const savedUrlId = await setMessages(db, chatId.get() as string, messages, targetUrlId, description.get());
+
+      if (targetUrlId && savedUrlId && savedUrlId !== urlId) {
+        setUrlId(savedUrlId);
+        navigateChat(savedUrlId);
+      }
     },
     duplicateCurrentChat: async (listItemId: string) => {
       if (!db || (!mixedId && !listItemId)) {
