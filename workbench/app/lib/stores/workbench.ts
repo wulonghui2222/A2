@@ -2,6 +2,7 @@ import { atom, map, type MapStore, type ReadableAtom, type WritableAtom } from '
 import type { EditorDocument, ScrollPosition } from '~/components/editor/codemirror/CodeMirrorEditor';
 import { ActionRunner } from '~/lib/runtime/action-runner';
 import type { ActionCallbackData, ArtifactCallbackData } from '~/lib/runtime/message-parser';
+import { isRestoredActionSkippable } from '~/lib/runtime/snapshot-cache';
 import { webcontainer } from '~/lib/webcontainer';
 import type { ITerminal } from '~/types/terminal';
 import { unreachable } from '~/utils/unreachable';
@@ -52,6 +53,14 @@ export class WorkbenchStore {
   modifiedFiles = new Set<string>();
   artifactIdList: string[] = [];
   #globalExecutionQueue = Promise.resolve();
+
+  /*
+   * replay-snapshot-cache (design D5): message id of the bootstrap round
+   * whose file/install actions are superseded by the restored snapshot.
+   * Kept in hot data so HMR does not lose it mid-replay.
+   */
+  #snapshotRestoredMessageId: string | undefined = import.meta.hot?.data.snapshotRestoredMessageId;
+
   constructor() {
     if (import.meta.hot) {
       import.meta.hot.data.artifacts = this.artifacts;
@@ -59,6 +68,15 @@ export class WorkbenchStore {
       import.meta.hot.data.showWorkbench = this.showWorkbench;
       import.meta.hot.data.currentView = this.currentView;
       import.meta.hot.data.actionAlert = this.actionAlert;
+    }
+  }
+
+  /** replay-snapshot-cache (design D5 step 5): activate action skipping for the bootstrap round. */
+  setSnapshotRestored(messageId: string) {
+    this.#snapshotRestoredMessageId = messageId;
+
+    if (import.meta.hot) {
+      import.meta.hot.data.snapshotRestoredMessageId = messageId;
     }
   }
 
@@ -360,6 +378,30 @@ export class WorkbenchStore {
     const action = artifact.runner.actions.get()[data.actionId];
 
     if (!action || action.executed) {
+      return;
+    }
+
+    /*
+     * replay-snapshot-cache (design D5 step 5): the restored snapshot already
+     * contains the bootstrap round's files and installed dependencies, so
+     * those actions complete without executing. Later rounds run normally and
+     * overwrite on top of the snapshot.
+     */
+    if (
+      messageId === this.#snapshotRestoredMessageId &&
+      isRestoredActionSkippable(
+        messageId,
+        data.action.type,
+        data.action.type === 'shell' ? data.action.content : undefined,
+      )
+    ) {
+      artifact.runner.markActionSkipped(data.actionId);
+
+      if (data.action.type === 'file') {
+        // keep the editor/file-panel state in sync with the restored tree
+        this.#editorStore.updateFile(nodePath.join(WORK_DIR, data.action.filePath), data.action.content);
+      }
+
       return;
     }
 

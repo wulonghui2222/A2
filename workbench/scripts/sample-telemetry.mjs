@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
 // pnpm store layout: playwright-core is not hoisted to node_modules/
 import { chromium } from '../node_modules/.pnpm/playwright-core@1.62.1/node_modules/playwright-core/index.mjs';
 
@@ -39,6 +40,36 @@ async function dumpRounds(page) {
   }
 }
 
+/*
+ * replay-snapshot-cache (tasks 2.2/4.2): dump the OPFS snapshot cache state —
+ * IndexedDB metadata entries plus the blob files actually on disk.
+ */
+async function dumpSnapshotCache(page) {
+  try {
+    return await page.evaluate(async () => {
+      const mod = await import('/app/lib/runtime/snapshot-cache.ts');
+      const entries = await mod.snapshotCache.entries();
+      const files = [];
+
+      try {
+        const root = await navigator.storage.getDirectory();
+        const dir = await root.getDirectoryHandle('a2-nm-cache');
+
+        for await (const [name, handle] of dir.entries()) {
+          files.push({ name, size: handle.kind === 'file' ? (await handle.getFile()).size : undefined });
+        }
+      } catch {
+        // cache dir missing = no snapshots written yet
+      }
+
+      return JSON.parse(JSON.stringify({ entries, files }));
+    });
+  } catch (error) {
+    log('dumpSnapshotCache failed:', String(error));
+    return { __error: String(error) };
+  }
+}
+
 /** Wait until a round satisfies pred; returns collector snapshot. */
 async function waitForRound(page, pred, label) {
   const deadline = Date.now() + ROUND_TIMEOUT_MS;
@@ -46,6 +77,7 @@ async function waitForRound(page, pred, label) {
 
   while (Date.now() < deadline) {
     last = await dumpRounds(page);
+
     const rounds = Object.values(last ?? {});
     const match = rounds.find(pred);
 
@@ -58,6 +90,7 @@ async function waitForRound(page, pred, label) {
   }
 
   log(`[${label}] TIMEOUT waiting; last snapshot dumped`);
+
   return last;
 }
 
@@ -131,7 +164,9 @@ async function sendPrompt(page, text, label) {
   // confirm the submit actually went through (URL flips to /chat/ or input clears)
   await page
     .waitForFunction(
-      (t) => location.pathname.startsWith('/chat/') || ![...document.querySelectorAll('textarea')].some((el) => el.value === t),
+      (t) =>
+        location.pathname.startsWith('/chat/') ||
+        ![...document.querySelectorAll('textarea')].some((el) => el.value === t),
       text,
       { timeout: 15_000 },
     )
@@ -145,6 +180,7 @@ async function sendPrompt(page, text, label) {
 async function shot(page, name) {
   const file = path.join(OUT, `${name}.png`);
   await page.screenshot({ path: file }).catch((e) => log(`screenshot ${name} failed:`, String(e)));
+
   return file;
 }
 
@@ -158,6 +194,7 @@ async function runProject(context, project) {
   try {
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('textarea', { timeout: 30_000 });
+
     // hydration gate: the landing textarea is inert until ClientOnly mounts
     await page.getByRole('button', { name: '发送' }).first().waitFor({ state: 'visible', timeout: 60_000 });
     page.on('request', (r) => {
@@ -177,6 +214,15 @@ async function runProject(context, project) {
     page.on('requestfailed', (r) => {
       if (r.url().includes('/api/')) {
         log(`[net] FAILED ${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ''}`);
+      }
+    });
+
+    // replay-snapshot-cache diagnostics: surface browser-side [nm-cache] logs
+    page.on('console', (msg) => {
+      const text = msg.text();
+
+      if (text.includes('[nm-cache]') || text.includes('SnapshotCache')) {
+        log(`[console] ${text}`);
       }
     });
     log(`== project ${project.name}: start ==`);
@@ -201,6 +247,34 @@ async function runProject(context, project) {
 
       // grace window so the final throttled history save (and usage annotation) lands
       await page.waitForTimeout(20_000);
+
+      /*
+       * replay-snapshot-cache (task 2.2): the write-back runs shortly after
+       * the preview opens; poll until the snapshot lands (or time out).
+       */
+      if (i === project.prompts.length - 1) {
+        const cacheDeadline = Date.now() + 60_000;
+        let cache = { entries: [], files: [] };
+
+        while (Date.now() < cacheDeadline) {
+          cache = await dumpSnapshotCache(page);
+
+          if ((cache.entries ?? []).length > 0 && (cache.files ?? []).length > 0) {
+            break;
+          }
+
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+
+        entry.cacheAfterGeneration = cache;
+
+        for (const e of cache.entries ?? []) {
+          log(`[nm-cache] entry key=${e.key.slice(0, 12)}… size=${(e.sizeBytes / (1024 * 1024)).toFixed(1)}MB`);
+        }
+
+        // idempotency: reload-less re-trigger is covered by the replay below
+        save();
+      }
 
       if (i === project.prompts.length - 1) {
         chatUrl = page.url();
@@ -245,10 +319,40 @@ async function runProject(context, project) {
       await new Promise((r) => setTimeout(r, 15_000));
 
       const replaySnapshot = await dumpRounds(page);
+      const cacheAfterReplay = await dumpSnapshotCache(page);
       const file = await shot(page, `${project.name}-replay`);
 
-      entry.replay = { replayedAt, screenshot: file, snapshot: replaySnapshot };
+      entry.replay = { replayedAt, screenshot: file, snapshot: replaySnapshot, cache: cacheAfterReplay };
       save();
+
+      /*
+       * replay-snapshot-cache (task 4.2): report the restore outcome and the
+       * cold-vs-cached timing comparison for the bootstrap round.
+       */
+      const replayRounds = Object.values(replaySnapshot ?? {}).filter((r) => r.source === 'replay');
+      const bootstrap = replayRounds[0];
+
+      if (bootstrap) {
+        const installAction = bootstrap.actions?.find((a) => a.commandClass === 'install');
+        const startAction = bootstrap.actions?.find((a) => a.type === 'start');
+        const replayToPreviewMs =
+          bootstrap.preview?.openedAt !== undefined ? bootstrap.preview.openedAt - replayedAt : undefined;
+
+        log(
+          `[nm-cache] replay bootstrap: restore=${JSON.stringify(bootstrap.restore ?? null)} ` +
+            `installAction=${installAction ? `present(${Math.round(installAction.durationMs ?? 0)}ms)` : 'SKIPPED'} ` +
+            `startToPreview=${bootstrap.preview?.startToPreviewMs ?? 'n/a'}ms replayToPreview=${replayToPreviewMs ?? 'n/a'}ms`,
+        );
+
+        const freshBootstrap = Object.values(entry.rounds[0]?.snapshot ?? {})[0];
+        const coldInstall = freshBootstrap?.actions?.find((a) => a.commandClass === 'install');
+
+        if (coldInstall?.durationMs !== undefined) {
+          log(`[nm-cache] cold install was ${Math.round(coldInstall.durationMs)}ms`);
+        }
+      } else {
+        log('[nm-cache] replay produced no rounds — restore comparison unavailable');
+      }
     }
   } catch (error) {
     log(`project ${project.name} failed:`, String(error));

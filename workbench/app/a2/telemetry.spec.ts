@@ -341,4 +341,52 @@ describe('generation telemetry collector', () => {
       expect(annotation.value.actions).toHaveLength(60);
     });
   });
+
+  describe('snapshot restore telemetry (replay-snapshot-cache design D7)', () => {
+    it('attaches a stashed restore outcome to the first round and the annotation', () => {
+      generationTelemetry.setRoundSource('replay');
+      generationTelemetry.recordRestore({ hit: true, durationMs: 1200, fallback: 'none' });
+
+      generationTelemetry.startRound('m1', 0);
+      generationTelemetry.startRound('m2', 100);
+
+      expect(generationTelemetry.getRound('m1')!.restore).toEqual({ hit: true, durationMs: 1200, fallback: 'none' });
+      expect(generationTelemetry.getRound('m2')!.restore).toBeUndefined();
+
+      const annotation = buildTelemetryAnnotation(generationTelemetry.getRound('m1')!);
+
+      expect(annotation.value.restore).toEqual({ hit: true, durationMs: 1200, fallback: 'none' });
+    });
+
+    it('finalizes a restored replay round that has a start action but no install action', async () => {
+      generationTelemetry.setRoundSource('replay');
+      generationTelemetry.recordRestore({ hit: true, durationMs: 900, fallback: 'none' });
+      generationTelemetry.startRound('m1', 0);
+
+      await generationTelemetry.streamEnd('m1');
+      expect(generationTelemetry.getRound('m1')!.status).toBe('stream-ended');
+
+      // install was skipped: only the start action lands
+      generationTelemetry.recordActionStart('m1', 'a1', 'start', 'npm run dev');
+      expect(generationTelemetry.getRound('m1')!.status).toBe('draining');
+
+      vi.setSystemTime(new Date('2026-08-11T12:00:05Z'));
+      generationTelemetry.previewPortChanged(3000, true);
+
+      const round = generationTelemetry.getRound('m1')!;
+      expect(round.status).toBe('finalized');
+      expect(round.preview.startToPreviewMs).toBeDefined();
+      expect(round.actions.some((action) => action.commandClass === 'install')).toBe(false);
+    });
+
+    it('marks the restore as start-failed once the restored dev server fails', () => {
+      generationTelemetry.setRoundSource('replay');
+      generationTelemetry.recordRestore({ hit: true, durationMs: 900, fallback: 'none' });
+      generationTelemetry.startRound('m1', 0);
+
+      generationTelemetry.markRestoreStartFailed();
+
+      expect(generationTelemetry.getRound('m1')!.restore!.fallback).toBe('start-failed');
+    });
+  });
 });

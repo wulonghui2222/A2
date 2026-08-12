@@ -51,6 +51,13 @@ export interface TelemetryPhases {
   tailMs?: number;
 }
 
+/** replay-snapshot-cache (design D7): snapshot restore outcome of a replay round. */
+export interface TelemetryRestoreInfo {
+  hit: boolean;
+  durationMs?: number;
+  fallback?: 'none' | 'mount-failed' | 'start-failed';
+}
+
 export interface TelemetryRound {
   messageId: string;
   source: TelemetrySource;
@@ -65,6 +72,7 @@ export interface TelemetryRound {
   preview: TelemetryPreview;
   interrupts: TelemetryInterrupt[];
   webcontainerBootMs?: number;
+  restore?: TelemetryRestoreInfo;
 }
 
 /** Server-authoritative timing from the WB-09 usage annotation (design D2). */
@@ -93,6 +101,7 @@ export interface TelemetryAnnotationValue {
   preview: TelemetryPreview;
   interrupts: TelemetryInterrupt[];
   webcontainerBootMs?: number;
+  restore?: TelemetryRestoreInfo;
 }
 
 export interface TelemetryAnnotation {
@@ -137,6 +146,7 @@ interface CollectorInternals {
   currentSource: TelemetrySource;
   pendingStartedAt?: number;
   webcontainerBootMs?: number;
+  pendingRestore?: TelemetryRestoreInfo;
   openPreviewPorts: Set<number>;
   persistHandler?: TelemetryPersistHandler;
   graceTimers: Map<string, ReturnType<typeof setTimeout>>;
@@ -303,6 +313,7 @@ export function buildTelemetryAnnotation(round: TelemetryRound): TelemetryAnnota
     preview: { ...round.preview },
     interrupts: round.interrupts.map((interrupt) => ({ ...interrupt })),
     ...(round.webcontainerBootMs !== undefined ? { webcontainerBootMs: round.webcontainerBootMs } : {}),
+    ...(round.restore ? { restore: { ...round.restore } } : {}),
   };
 
   let annotation: TelemetryAnnotation = { type: 'telemetry', value };
@@ -386,6 +397,17 @@ export const generationTelemetry = {
     };
 
     internals.pendingStartedAt = undefined;
+
+    /*
+     * replay-snapshot-cache (design D7): the restore attempt happens before
+     * any round exists (useChatHistory runs before parsing), so it is
+     * stashed and attached to the FIRST round only — the bootstrap round.
+     */
+    if (internals.pendingRestore) {
+      round.restore = internals.pendingRestore;
+      internals.pendingRestore = undefined;
+    }
+
     internals.order.push(messageId);
 
     while (internals.order.length > MAX_ROUNDS) {
@@ -564,6 +586,38 @@ export const generationTelemetry = {
     internals.webcontainerBootMs = durationMs;
   },
 
+  /**
+   * replay-snapshot-cache (design D7): restore outcome tap from the snapshot
+   * cache module. Also upgrades the bootstrap round's fallback when the start
+   * action later fails on a restored workspace.
+   */
+  recordRestore(info: TelemetryRestoreInfo) {
+    if (!internals.pendingRestore) {
+      internals.pendingRestore = { ...info };
+      return;
+    }
+
+    internals.pendingRestore = { ...internals.pendingRestore, ...info };
+  },
+
+  /** replay-snapshot-cache (design D7/D5 step 6): mark the restore as start-failed. */
+  markRestoreStartFailed() {
+    if (internals.pendingRestore) {
+      internals.pendingRestore.fallback = 'start-failed';
+      return;
+    }
+
+    for (const id of internals.order) {
+      const round = internals.rounds.get()[id];
+
+      if (round?.restore) {
+        round.restore = { ...round.restore, fallback: 'start-failed' };
+        touchRound(id);
+        break;
+      }
+    }
+  },
+
   /** Task 4.2: interruption events applied to the active round. */
   recordInterrupt(kind: TelemetryInterruptKind, at: number = Date.now()) {
     const round = this.activeRound();
@@ -642,6 +696,7 @@ export const generationTelemetry = {
     internals.rounds.set({});
     internals.pendingStartedAt = undefined;
     internals.currentSource = 'fresh';
+    internals.pendingRestore = undefined;
     internals.openPreviewPorts.clear();
     internals.webcontainerBootMs = undefined;
   },

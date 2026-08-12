@@ -42,3 +42,10 @@ export const A2_ENABLE_RESPONSE_STATS = (import.meta.env.A2_ENABLE_RESPONSE_STAT
  * the dev-only waterfall panel, which stays hidden from end users by default.
  */
 export const A2_ENABLE_GENERATION_TELEMETRY = (import.meta.env.A2_ENABLE_GENERATION_TELEMETRY ?? 'false') !== 'false';
+
+/*
+ * replay-snapshot-cache (design D8): cache the installed workspace in OPFS so
+ * replay can skip npm install. Defaults on; the localStorage key
+ * "a2-nm-snapshot-cache" ("off"/"on") overrides it without a deploy.
+ */
+export const A2_ENABLE_NM_SNAPSHOT_CACHE = (import.meta.env.A2_ENABLE_NM_SNAPSHOT_CACHE ?? 'true') !== 'false';

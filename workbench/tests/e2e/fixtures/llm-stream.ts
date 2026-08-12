@@ -44,7 +44,7 @@ export function stubAssistantMessage(): string {
  * `e:`/`d:` close the message with finish reason and usage. Chunks are kept
  * small to exercise the streaming render path.
  */
-function dataStreamBody(text: string): string {
+export function dataStreamBody(text: string): string {
   const chunkSize = 16;
   const lines: string[] = [];
 

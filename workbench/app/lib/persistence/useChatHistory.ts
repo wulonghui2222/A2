@@ -4,6 +4,7 @@ import { atom } from 'nanostores';
 import type { Message } from 'ai';
 import { toast } from 'react-toastify';
 import { workbenchStore } from '~/lib/stores/workbench';
+import { restoreWorkspaceSnapshot } from '~/lib/runtime/snapshot-cache';
 import { logStore } from '~/lib/stores/logs'; // Import logStore
 import {
   getMessages,
@@ -67,15 +68,42 @@ export function useChatHistory() {
              * back into WebContainer so the Files panel is populated before
              * the Chat component renders.
              */
+            let persistedFiles: Record<string, string> | undefined;
+
             if (storedMessages.fileSnapshot) {
               try {
                 const snapshot = JSON.parse(storedMessages.fileSnapshot);
 
                 if (snapshot && typeof snapshot === 'object' && Object.keys(snapshot).length > 0) {
+                  persistedFiles = snapshot;
                   await workbenchStore.restoreFiles(snapshot);
                 }
               } catch (err) {
                 console.warn('Failed to restore file snapshot', err);
+              }
+            }
+
+            /*
+             * replay-snapshot-cache (design D5 steps 1-4): mount the cached
+             * installed workspace (keyed by package.json) so replay can skip
+             * npm install. Misses and failures fall back to the full replay
+             * transparently. Must finish before the Chat component parses
+             * messages and re-queues the action queue.
+             */
+            const bootstrapMessageId = filteredMessages.find((message) => message.role === 'assistant')?.id;
+
+            if (bootstrapMessageId) {
+              try {
+                const restoreResult = await restoreWorkspaceSnapshot(
+                  persistedFiles?.['package.json'],
+                  bootstrapMessageId,
+                );
+
+                if (restoreResult.restored) {
+                  workbenchStore.setSnapshotRestored(bootstrapMessageId);
+                }
+              } catch (err) {
+                console.warn('Snapshot restore failed, falling back to full replay', err);
               }
             }
 
