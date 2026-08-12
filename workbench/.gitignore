@@ -32,6 +32,7 @@ dist-ssr
 # A2: SQLite database (design D4)
 prisma/a2.db
 prisma/a2.db-journal
+app.db
 *.vars
 .wrangler
 _worker.bundle
