@@ -3,10 +3,27 @@ import type { BoltArtifactData } from '~/types/artifact';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 
-const ARTIFACT_TAG_OPEN = '<boltArtifact';
-const ARTIFACT_TAG_CLOSE = '</boltArtifact>';
-const ARTIFACT_ACTION_TAG_OPEN = '<boltAction';
-const ARTIFACT_ACTION_TAG_CLOSE = '</boltAction>';
+// Some models emit whitespace between '<' and the tag name (e.g. '< boltArtifact',
+// '< /boltAction>'), so tag matching tolerates optional whitespace. Without this the
+// tags would be rendered as raw text in the chat and no actions would run.
+const ARTIFACT_TAG_NAME = 'boltArtifact';
+const ACTION_TAG_OPEN_REGEX = /<\s*boltAction/g;
+const ACTION_TAG_CLOSE_REGEX = /<\s*\/\s*boltAction\s*>/g;
+const ARTIFACT_TAG_CLOSE_REGEX = /<\s*\/\s*boltArtifact\s*>/g;
+
+interface TagMatch {
+  index: number;
+  length: number;
+}
+
+/** indexOf-like search that allows whitespace inside the tag markup. */
+function findTag(input: string, regex: RegExp, from: number): TagMatch | undefined {
+  regex.lastIndex = from;
+
+  const match = regex.exec(input);
+
+  return match ? { index: match.index, length: match[0].length } : undefined;
+}
 
 const logger = createScopedLogger('MessageParser');
 
@@ -97,12 +114,12 @@ export class StreamingMessageParser {
         }
 
         if (state.insideAction) {
-          const closeIndex = input.indexOf(ARTIFACT_ACTION_TAG_CLOSE, i);
+          const closeMatch = findTag(input, ACTION_TAG_CLOSE_REGEX, i);
 
           const currentAction = state.currentAction;
 
-          if (closeIndex !== -1) {
-            currentAction.content += input.slice(i, closeIndex);
+          if (closeMatch) {
+            currentAction.content += input.slice(i, closeMatch.index);
 
             let content = currentAction.content.trim();
 
@@ -134,7 +151,7 @@ export class StreamingMessageParser {
             state.insideAction = false;
             state.currentAction = { content: '' };
 
-            i = closeIndex + ARTIFACT_ACTION_TAG_CLOSE.length;
+            i = closeMatch.index + closeMatch.length;
           } else {
             if ('type' in currentAction && currentAction.type === 'file') {
               let content = input.slice(i);
@@ -158,16 +175,16 @@ export class StreamingMessageParser {
             break;
           }
         } else {
-          const actionOpenIndex = input.indexOf(ARTIFACT_ACTION_TAG_OPEN, i);
-          const artifactCloseIndex = input.indexOf(ARTIFACT_TAG_CLOSE, i);
+          const actionOpenMatch = findTag(input, ACTION_TAG_OPEN_REGEX, i);
+          const artifactCloseMatch = findTag(input, ARTIFACT_TAG_CLOSE_REGEX, i);
 
-          if (actionOpenIndex !== -1 && (artifactCloseIndex === -1 || actionOpenIndex < artifactCloseIndex)) {
-            const actionEndIndex = input.indexOf('>', actionOpenIndex);
+          if (actionOpenMatch && (!artifactCloseMatch || actionOpenMatch.index < artifactCloseMatch.index)) {
+            const actionEndIndex = input.indexOf('>', actionOpenMatch.index);
 
             if (actionEndIndex !== -1) {
               state.insideAction = true;
 
-              state.currentAction = this.#parseActionTag(input, actionOpenIndex, actionEndIndex);
+              state.currentAction = this.#parseActionTag(input, actionOpenMatch.index, actionEndIndex);
 
               this._options.callbacks?.onActionOpen?.({
                 artifactId: currentArtifact.id,
@@ -180,34 +197,43 @@ export class StreamingMessageParser {
             } else {
               break;
             }
-          } else if (artifactCloseIndex !== -1) {
+          } else if (artifactCloseMatch) {
             this._options.callbacks?.onArtifactClose?.({ messageId, ...currentArtifact });
 
             state.insideArtifact = false;
             state.currentArtifact = undefined;
 
-            i = artifactCloseIndex + ARTIFACT_TAG_CLOSE.length;
+            i = artifactCloseMatch.index + artifactCloseMatch.length;
           } else {
             break;
           }
         }
       } else if (input[i] === '<' && input[i + 1] !== '/') {
-        let j = i;
-        let potentialTag = '';
+        // Skip any whitespace between '<' and the tag name ('< boltArtifact').
+        let k = i + 1;
 
-        while (j < input.length && potentialTag.length < ARTIFACT_TAG_OPEN.length) {
-          potentialTag += input[j];
+        while (k < input.length && /\s/.test(input[k])) {
+          k++;
+        }
 
-          if (potentialTag === ARTIFACT_TAG_OPEN) {
-            const nextChar = input[j + 1];
+        let nameLen = 0;
 
-            if (nextChar && nextChar !== '>' && nextChar !== ' ') {
-              output += input.slice(i, j + 1);
-              i = j + 1;
-              break;
-            }
+        while (
+          nameLen < ARTIFACT_TAG_NAME.length &&
+          k + nameLen < input.length &&
+          input[k + nameLen] === ARTIFACT_TAG_NAME[nameLen]
+        ) {
+          nameLen++;
+        }
 
-            const openTagEnd = input.indexOf('>', j);
+        if (nameLen === ARTIFACT_TAG_NAME.length) {
+          const nextChar = input[k + nameLen];
+
+          if (nextChar && nextChar !== '>' && nextChar !== ' ') {
+            output += input.slice(i, k + nameLen);
+            i = k + nameLen;
+          } else {
+            const openTagEnd = input.indexOf('>', k + nameLen);
 
             if (openTagEnd !== -1) {
               const artifactTag = input.slice(i, openTagEnd + 1);
@@ -244,18 +270,16 @@ export class StreamingMessageParser {
             } else {
               earlyBreak = true;
             }
-
-            break;
-          } else if (!ARTIFACT_TAG_OPEN.startsWith(potentialTag)) {
-            output += input.slice(i, j + 1);
-            i = j + 1;
-            break;
           }
-
-          j++;
+        } else if (k + nameLen === input.length) {
+          // Incomplete tag at the end of the stream: wait for more chunks.
+          earlyBreak = true;
+        } else {
+          output += input.slice(i, k + nameLen);
+          i = k + nameLen;
         }
 
-        if (j === input.length && ARTIFACT_TAG_OPEN.startsWith(potentialTag)) {
+        if (earlyBreak) {
           break;
         }
       } else {

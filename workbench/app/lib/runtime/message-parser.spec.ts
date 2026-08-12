@@ -136,6 +136,34 @@ describe('StreamingMessageParser', () => {
     });
   });
 
+  describe('whitespace inside tag markup (models emitting "< boltArtifact")', () => {
+    it.each<[string | string[], ExpectedResult | string]>([
+      [
+        'Before < boltArtifact title="Some title" id="artifact_1">foo</ boltArtifact> After',
+        {
+          output: 'Before  After',
+          callbacks: { onArtifactOpen: 1, onArtifactClose: 1, onActionOpen: 0, onActionClose: 0 },
+        },
+      ],
+      [
+        'Before < boltArtifact title="Some title" id="artifact_1">\n< boltAction type="shell">npm install< /boltAction>\n< boltAction type="file" filePath="index.js">some content< /boltAction>\n< /boltArtifact> After',
+        {
+          output: 'Before  After',
+          callbacks: { onArtifactOpen: 1, onArtifactClose: 1, onActionOpen: 2, onActionClose: 2 },
+        },
+      ],
+      [
+        ['Before < boltArti', 'fact title="Some title" id="artifact_1">fo', 'o< /boltArtifact> After'],
+        {
+          output: 'Before  After',
+          callbacks: { onArtifactOpen: 1, onArtifactClose: 1, onActionOpen: 0, onActionClose: 0 },
+        },
+      ],
+    ])('should strip bolt tags with whitespace after "<" (%#)', (input, expected) => {
+      runTest(input, expected);
+    });
+  });
+
   describe('valid artifacts with actions', () => {
     it.each<[string | string[], ExpectedResult | string]>([
       [

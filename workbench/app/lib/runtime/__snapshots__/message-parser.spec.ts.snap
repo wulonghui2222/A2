@@ -236,3 +236,108 @@ exports[`StreamingMessageParser > valid artifacts without actions > should corre
   "type": undefined,
 }
 `;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (0) > onArtifactClose 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (0) > onArtifactOpen 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onActionClose 1`] = `
+{
+  "action": {
+    "content": "npm install",
+    "type": "shell",
+  },
+  "actionId": "0",
+  "artifactId": "artifact_1",
+  "messageId": "message_1",
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onActionClose 2`] = `
+{
+  "action": {
+    "content": "some content
+",
+    "filePath": "index.js",
+    "type": "file",
+  },
+  "actionId": "1",
+  "artifactId": "artifact_1",
+  "messageId": "message_1",
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onActionOpen 1`] = `
+{
+  "action": {
+    "content": "",
+    "type": "shell",
+  },
+  "actionId": "0",
+  "artifactId": "artifact_1",
+  "messageId": "message_1",
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onActionOpen 2`] = `
+{
+  "action": {
+    "content": "",
+    "filePath": "index.js",
+    "type": "file",
+  },
+  "actionId": "1",
+  "artifactId": "artifact_1",
+  "messageId": "message_1",
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onArtifactClose 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (1) > onArtifactOpen 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (2) > onArtifactClose 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
+
+exports[`StreamingMessageParser > whitespace inside tag markup (models emitting "< boltArtifact") > should strip bolt tags with whitespace after "<" (2) > onArtifactOpen 1`] = `
+{
+  "id": "artifact_1",
+  "messageId": "message_1",
+  "title": "Some title",
+  "type": undefined,
+}
+`;
