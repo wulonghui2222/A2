@@ -128,13 +128,19 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
             );
           })
         : null}
-      {isStreaming && (
-        <div className="text-center w-full text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-4xl mt-4"></div>
-      )}
-      {(requestStatus === 'waiting' || requestStatus === 'thinking' || requestStatus === 'streaming') && (
-        <div className="text-center w-full mt-2">
+      {requestStatus === 'waiting' || requestStatus === 'thinking' || requestStatus === 'streaming' ? (
+        /*
+         * dashscope-reasoning-stream: spinner and live status share one
+         * centered line instead of stacking vertically.
+         */
+        <div className="flex items-center justify-center gap-3 w-full mt-4">
+          <div className="text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-2xl"></div>
           <ResponseStats status={requestStatus} startedAt={requestStartedAt} contentLength={streamingContentLength} />
         </div>
+      ) : (
+        isStreaming && (
+          <div className="text-center w-full text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-4xl mt-4"></div>
+        )
       )}
     </div>
   );

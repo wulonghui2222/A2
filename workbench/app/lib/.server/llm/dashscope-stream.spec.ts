@@ -93,11 +93,15 @@ describe('dashScopeStreamText wire format', () => {
     expect(types).not.toContain('finish_message');
     expect(types[types.length - 1]).toBe('finish_step');
 
-    // reasoning arrives before any text
+    // reasoning arrives before any visible text. An empty `0:""` seed part
+    // precedes the first reasoning annotation (forces client message
+    // creation, ui-utils@1.0.5 drops annotations without a message).
     const firstReasoning = parts.findIndex((part) => part.type === 'message_annotations');
-    const firstText = parts.findIndex((part) => part.type === 'text');
-    expect(firstReasoning).toBeGreaterThanOrEqual(0);
-    expect(firstText).toBeGreaterThan(firstReasoning);
+    expect(parts[0]).toEqual({ type: 'text', value: '' });
+    expect(firstReasoning).toBe(1);
+
+    const firstVisibleText = parts.findIndex((part) => part.type === 'text' && (part.value as string).length > 0);
+    expect(firstVisibleText).toBeGreaterThan(firstReasoning);
 
     // annotations carry the exact writeMessageAnnotation shape
     const reasoningText = parts
@@ -151,7 +155,9 @@ describe('dashScopeStreamText wire format', () => {
 
     const parts = (await collectLines(result.toDataStream())).map((line) => parseDataStreamPart(line));
 
+    // no reasoning -> no seed part either
     expect(parts.some((part) => part.type === 'message_annotations')).toBe(false);
+    expect(parts.some((part) => part.type === 'text' && (part.value as string) === '')).toBe(false);
     expect(onFirstReasoningToken).not.toHaveBeenCalled();
 
     // length finish reason flows through for continuation segments

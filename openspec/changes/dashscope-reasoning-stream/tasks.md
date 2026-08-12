@@ -47,8 +47,8 @@
 
 ## 9. End-to-End Testing
 
-- [ ] 9.1 Start the workbench dev server with `A2_ENABLE_GENERATION_TELEMETRY=true` and `A2_ENABLE_RESPONSE_STATS=true`. Send a chat prompt that triggers reasoning (e.g., "创建一个 todo 应用").
-- [ ] 9.2 Verify: (a) reasoning panel expands during thinking phase, (b) reasoning text streams in real time, (c) answer begins after reasoning, (d) "思考中… X.Xs" transitions to "生成中…", (e) stats line shows both TTRT and TTFT after completion.
+- [x] 9.1 Start the workbench dev server with `A2_ENABLE_GENERATION_TELEMETRY=true` and `A2_ENABLE_RESPONSE_STATS=true`. Send a chat prompt that triggers reasoning (e.g., "创建一个 todo 应用").
+- [x] 9.2 Verify: (a) reasoning panel expands during thinking phase, (b) reasoning text streams in real time, (c) answer begins after reasoning, (d) "思考中… X.Xs" transitions to "生成中…", (e) stats line shows both TTRT and TTFT after completion.
 - [ ] 9.3 Reload the page and verify: (a) reasoning panel is collapsed by default, (b) expanding shows the full reasoning text, (c) stats line is preserved.
 - [ ] 9.4 Send a follow-up incremental prompt and verify: continuation segments work, reasoning appears for the new segment, no errors in console.
-- [ ] 9.5 Run `openspec validate --change dashscope-reasoning-stream` to verify spec compliance.
+- [x] 9.5 Run `openspec validate --change dashscope-reasoning-stream` to verify spec compliance.

@@ -86,6 +86,16 @@ export function dashScopeStreamText(props: DashScopeStreamTextProps): DashScopeS
   let usage: DashScopeUsage | undefined;
   let firstTextDeltaReported = false;
   let firstReasoningTokenReported = false;
+
+  /*
+   * @ai-sdk/ui-utils@1.0.5 drops annotation parts received before the
+   * assistant message exists: onMessageAnnotationsPart never calls
+   * getMessage(), and execUpdate() bails out while currentMessage == null.
+   * Reasoning always precedes content for a thinking model, so the first `8:`
+   * flush is preceded by an empty `0:""` part that forces message creation
+   * (content + '' is a no-op). Until then, reasoning stays in the buffer.
+   */
+  let assistantMessageSeeded = false;
   let reasoningBuffer = '';
   let lastReasoningFlushAt = 0;
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -106,6 +116,11 @@ export function dashScopeStreamText(props: DashScopeStreamTextProps): DashScopeS
   function flushReasoning(controller: ReadableStreamDefaultController<Uint8Array>) {
     if (reasoningBuffer.length === 0) {
       return;
+    }
+
+    if (!assistantMessageSeeded) {
+      assistantMessageSeeded = true;
+      safeEnqueue(controller, formatDataStreamLine('0', ''));
     }
 
     const text = reasoningBuffer;
@@ -204,6 +219,8 @@ export function dashScopeStreamText(props: DashScopeStreamTextProps): DashScopeS
           }
 
           if (contentDelta) {
+            assistantMessageSeeded = true;
+
             if (!firstTextDeltaReported) {
               firstTextDeltaReported = true;
               props.onFirstTextDelta?.();
