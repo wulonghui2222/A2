@@ -5,6 +5,8 @@
 import type { Message } from 'ai';
 import React, { type RefCallback, useCallback, useEffect, useState } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
+import { useStore } from '@nanostores/react';
+import { showWorkbench } from '~/lib/stores/workbench-ui-state';
 import { Menu } from '~/components/sidebar/Menu.client';
 import { Workbench } from '~/components/workbench/Workbench.client';
 import { classNames } from '~/utils/classNames';
@@ -109,6 +111,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
     const [transcript, setTranscript] = useState('');
     const [isModelLoading, setIsModelLoading] = useState<string | undefined>('all');
+    const showWorkbenchValue = useStore(showWorkbench);
 
     const getProviderSettings = useCallback(() => {
       let providerSettings: Record<string, IProviderSetting> | undefined = undefined;
@@ -316,12 +319,12 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const baseChat = (
       <div
         ref={ref}
-        className={classNames(styles.BaseChat, 'relative flex h-full w-full overflow-hidden')}
+        className={classNames(styles.BaseChat, 'relative h-full w-full')}
         data-chat-visible={showChat}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
-        <div className="flex flex-col lg:flex-row overflow-hidden w-full h-full">
-          <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full min-h-0 overflow-hidden')}>
+        <div className="relative w-full h-full">
+          <div className={classNames(styles.Chat, 'flex flex-col w-full h-full min-h-0 overflow-hidden')} data-workbench-open={showWorkbenchValue}>
             {!chatStarted && (
               <div id="intro" className="mt-[16vh] max-w-chat mx-auto text-center px-4 lg:px-0">
                 {/* A2: size tuned so the Chinese heading fits --chat-max-width (37rem)
@@ -333,7 +336,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
             )}
             <div
               ref={chatStarted ? scrollRef : undefined}
-              className={classNames('pt-6 px-2 sm:px-6 overflow-y-auto', {
+              className={classNames('pt-6 px-2 sm:px-6 overflow-y-auto bolt-scrollbar', {
                 'h-full flex flex-col min-h-0': chatStarted,
               })}
             >

@@ -16,6 +16,16 @@
 
 .Chat {
   opacity: 1;
+
+  &[data-workbench-open='true'] {
+    max-width: var(--workbench-left, 100%);
+    transition: max-width 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  &[data-workbench-open='false'] {
+    max-width: 100%;
+    transition: max-width 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
 }
 
 .PromptEffectContainer {

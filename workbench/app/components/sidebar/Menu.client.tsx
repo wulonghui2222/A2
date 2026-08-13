@@ -168,7 +168,7 @@ export const Menu = () => {
         </div>
         {/* A2: sidebar lists projects, not chats. */}
         <div className="text-bolt-elements-textPrimary font-medium pl-6 pr-5 my-2">你的项目</div>
-        <div className="flex-1 overflow-auto pl-4 pr-5 pb-5">
+        <div className="flex-1 overflow-auto bolt-scrollbar pl-4 pr-5 pb-5">
           {filteredList.length === 0 && (
             <div className="pl-2 text-bolt-elements-textTertiary">
               {list.length === 0 ? 'No previous conversations' : 'No matches found'}

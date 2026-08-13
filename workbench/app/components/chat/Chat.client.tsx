@@ -12,6 +12,7 @@ import { useMessageParser, usePromptEnhancer, useShortcuts, useSnapScroll, flush
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
+import { showWorkbench } from '~/lib/stores/workbench-ui-state';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
 import { A2_ENABLE_GENERATION_TELEMETRY, A2_ENABLE_PROVIDER_SWITCH, A2_ENABLE_RESPONSE_STATS } from '~/a2/config';
 import { generationTelemetry, type TelemetryAnnotationValue } from '~/a2/telemetry';
@@ -339,6 +340,7 @@ export const ChatImpl = memo(
         setSearchParams({});
         runAnimation();
         beginRequestTracking();
+        showWorkbench.set(true);
         append({
           role: 'user',
           content: [
@@ -442,17 +444,24 @@ export const ChatImpl = memo(
        * the home page, so animate() them would never resolve and chatStarted
        * would stay false (messages and workbench never render). Animate only
        * elements that still exist.
+       *
+       * A2 FIX: wrap in a timeout safety net so that if framer-motion's
+       * animate() never resolves, chatStarted is still set to true.
        */
-      const animations = [animate('#intro', { opacity: 0, flex: 1 }, { duration: 0.2, ease: cubicEasingFn })];
+      const animations = [
+        animate('#intro', { opacity: 0 }, { duration: 0.2, ease: cubicEasingFn }),
+      ];
 
       if (document.querySelector('#examples')) {
         animations.unshift(animate('#examples', { opacity: 0, display: 'none' }, { duration: 0.1 }));
       }
 
-      await Promise.all(animations);
+      await Promise.race([
+        Promise.all(animations).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+      ]);
 
       chatStore.setKey('started', true);
-
       setChatStarted(true);
     };
 
@@ -468,6 +477,9 @@ export const ChatImpl = memo(
        * waiting/streaming feedback; covers every downstream append/reload path.
        */
       beginRequestTracking();
+
+      // Auto-open the workbench panel when the user submits a prompt.
+      showWorkbench.set(true);
 
       /**
        * @note (delm) Usually saving files shouldn't take long but it may take longer if there
