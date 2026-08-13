@@ -320,8 +320,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         data-chat-visible={showChat}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
-        <div ref={scrollRef} className="flex flex-col lg:flex-row overflow-y-auto w-full h-full">
-          <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full')}>
+        <div className="flex flex-col lg:flex-row overflow-hidden w-full h-full">
+          <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full min-h-0 overflow-hidden')}>
             {!chatStarted && (
               <div id="intro" className="mt-[16vh] max-w-chat mx-auto text-center px-4 lg:px-0">
                 {/* A2: size tuned so the Chinese heading fits --chat-max-width (37rem)
@@ -332,8 +332,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
               </div>
             )}
             <div
-              className={classNames('pt-6 px-2 sm:px-6', {
-                'h-full flex flex-col': chatStarted,
+              ref={chatStarted ? scrollRef : undefined}
+              className={classNames('pt-6 px-2 sm:px-6 overflow-y-auto', {
+                'h-full flex flex-col min-h-0': chatStarted,
               })}
             >
               <ClientOnly>

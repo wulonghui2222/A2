@@ -86,7 +86,7 @@ export function Chat() {
   );
 }
 
-const processSampledMessages = createSampler(
+const processSampledMessagesIdle = createSampler(
   (options: {
     messages: Message[];
     initialMessages: Message[];
@@ -103,6 +103,38 @@ const processSampledMessages = createSampler(
   },
   50,
 );
+
+const processSampledMessagesStreaming = createSampler(
+  (options: {
+    messages: Message[];
+    initialMessages: Message[];
+    isLoading: boolean;
+    parseMessages: (messages: Message[], isLoading: boolean) => void;
+    storeMessageHistory: (messages: Message[]) => Promise<void>;
+  }) => {
+    const { messages, initialMessages, isLoading, parseMessages, storeMessageHistory } = options;
+    parseMessages(messages, isLoading);
+
+    if (messages.length > initialMessages.length) {
+      storeMessageHistory(messages).catch((error) => toast.error(error.message));
+    }
+  },
+  250,
+);
+
+const processSampledMessages = (options: {
+  messages: Message[];
+  initialMessages: Message[];
+  isLoading: boolean;
+  parseMessages: (messages: Message[], isLoading: boolean) => void;
+  storeMessageHistory: (messages: Message[]) => Promise<void>;
+}) => {
+  if (options.isLoading) {
+    processSampledMessagesStreaming(options);
+  } else {
+    processSampledMessagesIdle(options);
+  }
+};
 
 interface ChatProps {
   initialMessages: Message[];

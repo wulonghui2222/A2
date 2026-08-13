@@ -1,5 +1,5 @@
 import type { Message } from 'ai';
-import React, { Fragment } from 'react';
+import React, { Fragment, useState, useMemo } from 'react';
 import { classNames } from '~/utils/classNames';
 import { AssistantMessage } from './AssistantMessage';
 import { ResponseStats, type RequestStatus } from './ResponseStats';
@@ -9,6 +9,8 @@ import { db, chatId } from '~/lib/persistence/useChatHistory';
 import { forkChat } from '~/lib/persistence/db';
 import { toast } from 'react-toastify';
 import WithTooltip from '~/components/ui/Tooltip';
+
+const INITIAL_VISIBLE_COUNT = 20;
 
 interface MessagesProps {
   id?: string;
@@ -33,6 +35,17 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
   } = props;
   const location = useLocation();
 
+  const [showAll, setShowAll] = useState(false);
+
+  const visibleMessages = useMemo(() => {
+    if (showAll || messages.length <= INITIAL_VISIBLE_COUNT) {
+      return messages;
+    }
+    return messages.slice(messages.length - INITIAL_VISIBLE_COUNT);
+  }, [messages, showAll]);
+
+  const hiddenCount = messages.length - visibleMessages.length;
+
   const handleRewind = (messageId: string) => {
     const searchParams = new URLSearchParams(location.search);
     searchParams.set('rewindTo', messageId);
@@ -55,21 +68,32 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
 
   return (
     <div id={id} ref={ref} className={props.className}>
-      {messages.length > 0
-        ? messages.map((message, index) => {
+      {hiddenCount > 0 && (
+        <div className="flex justify-center py-3">
+          <button
+            onClick={() => setShowAll(true)}
+            className="text-sm text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary px-4 py-2 rounded-md border border-bolt-elements-borderColor hover:border-bolt-elements-borderColor-active transition-colors"
+          >
+            加载更早的 {hiddenCount} 条消息
+          </button>
+        </div>
+      )}
+      {visibleMessages.length > 0
+        ? visibleMessages.map((message) => {
+            const actualIndex = messages.indexOf(message);
             const { role, content, id: messageId, annotations } = message;
             const isUserMessage = role === 'user';
-            const isFirst = index === 0;
-            const isLast = index === messages.length - 1;
+            const isFirst = actualIndex === 0;
+            const isLast = actualIndex === messages.length - 1;
             const isHidden = annotations?.includes('hidden');
 
             if (isHidden) {
-              return <Fragment key={index} />;
+              return <Fragment key={actualIndex} />;
             }
 
             return (
               <div
-                key={index}
+                key={actualIndex}
                 className={classNames('flex gap-4 p-6 w-full rounded-[calc(0.75rem-1px)]', {
                   'bg-bolt-elements-messages-background': isUserMessage || !isStreaming || (isStreaming && !isLast),
                   'bg-gradient-to-b from-bolt-elements-messages-background from-30% to-transparent':
@@ -94,6 +118,7 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
                        * panel auto-expands only on the live assistant message.
                        */
                       isLiveMessage={isLast && (requestStatus === 'thinking' || requestStatus === 'streaming')}
+                      isStreaming={isLast && isStreaming}
                     />
                   )}
                 </div>

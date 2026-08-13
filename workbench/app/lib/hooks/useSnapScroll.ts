@@ -8,18 +8,29 @@ export function useSnapScroll() {
 
   const messageRef = useCallback((node: HTMLDivElement | null) => {
     if (node) {
-      const observer = new ResizeObserver(() => {
-        if (autoScrollRef.current && scrollNodeRef.current) {
-          const { scrollHeight, clientHeight } = scrollNodeRef.current;
-          const scrollTarget = scrollHeight - clientHeight;
+      let rafId: number | null = null;
+      let lastScrollTime = 0;
+      const THROTTLE_MS = 100;
 
-          scrollNodeRef.current.scrollTo({
-            top: scrollTarget,
-          });
-        }
+      const observer = new ResizeObserver(() => {
+        if (!autoScrollRef.current || !scrollNodeRef.current) return;
+
+        const now = Date.now();
+        if (now - lastScrollTime < THROTTLE_MS) return;
+        lastScrollTime = now;
+
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          if (scrollNodeRef.current) {
+            const { scrollHeight, clientHeight } = scrollNodeRef.current;
+            scrollNodeRef.current.scrollTo({ top: scrollHeight - clientHeight });
+          }
+          rafId = null;
+        });
       });
 
       observer.observe(node);
+      observerRef.current = observer;
     } else {
       observerRef.current?.disconnect();
       observerRef.current = undefined;
