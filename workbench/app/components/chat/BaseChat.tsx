@@ -336,8 +336,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
             )}
             <div
               ref={chatStarted ? scrollRef : undefined}
-              className={classNames('pt-6 px-2 sm:px-6 overflow-y-auto bolt-scrollbar', {
+              className={classNames('pt-6 px-2 sm:px-6 overflow-y-auto', {
                 'h-full flex flex-col min-h-0': chatStarted,
+                'bolt-scrollbar': showWorkbenchValue,
               })}
             >
               <ClientOnly>

@@ -115,7 +115,7 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
   return (
     chatStarted && (
       <motion.div
-        className="z-workbench fixed top-[calc(var(--header-height)+0.5rem)] bottom-6"
+        className="z-workbench fixed top-[calc(var(--header-height)+0.5rem)] bottom-6 overflow-hidden"
         initial={{ left: '100%', width: 0 }}
         animate={{
           left: isSmallViewport ? 0 : 'var(--workbench-left)',
@@ -132,7 +132,9 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
           )}
         >
           <div className="absolute inset-0 px-2 lg:px-6">
-            <div className="h-full flex flex-col bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor shadow-sm rounded-lg overflow-hidden bolt-scrollbar">
+            <div className={classNames('h-full flex flex-col bg-bolt-elements-background-depth-2 rounded-lg overflow-hidden bolt-scrollbar', {
+              'border border-bolt-elements-borderColor shadow-sm': showWorkbench,
+            })}>
               <div className="flex items-center px-3 py-2 border-b border-bolt-elements-borderColor">
                 <Slider selected={selectedView} options={sliderOptions} setSelected={setSelectedView} />
                 <div className="ml-auto" />

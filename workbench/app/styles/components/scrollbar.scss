@@ -19,7 +19,11 @@
 /* Webkit (Chrome / Edge / Safari) */
 .bolt-scrollbar {
   scrollbar-width: thin; /* Firefox */
-  scrollbar-color: var(--bolt-scrollbar-thumb) transparent; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox: hidden by default */
+
+  &:hover {
+    scrollbar-color: var(--bolt-scrollbar-thumb) transparent; /* Firefox: show on hover */
+  }
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -31,9 +35,13 @@
   }
 
   &::-webkit-scrollbar-thumb {
-    background: var(--bolt-scrollbar-thumb);
+    background: transparent;
     border-radius: 3px;
     transition: background 0.2s;
+  }
+
+  &:hover::-webkit-scrollbar-thumb {
+    background: var(--bolt-scrollbar-thumb);
 
     &:hover {
       background: var(--bolt-scrollbar-thumb-hover);
