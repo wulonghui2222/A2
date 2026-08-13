@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { motion, type HTMLMotionProps, type Variants } from 'framer-motion';
+import { motion, type HTMLMotionProps } from 'framer-motion';
 import { computed } from 'nanostores';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -37,22 +37,10 @@ const sliderOptions: SliderOptions<WorkbenchViewType> = {
   },
 };
 
-const workbenchVariants = {
-  closed: {
-    width: 0,
-    transition: {
-      duration: 0.2,
-      ease: cubicEasingFn,
-    },
-  },
-  open: {
-    width: 'var(--workbench-width)',
-    transition: {
-      duration: 0.2,
-      ease: cubicEasingFn,
-    },
-  },
-} satisfies Variants;
+const workbenchTransition = {
+  duration: 0.2,
+  ease: cubicEasingFn,
+};
 
 export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => {
   renderLogger.trace('Workbench');
@@ -68,6 +56,10 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
   const selectedView = useStore(workbenchStore.currentView);
 
   const isSmallViewport = useViewport(1024);
+
+  const targetWidth = showWorkbench
+    ? (isSmallViewport ? '100%' : 'var(--workbench-width)')
+    : 0;
 
   const setSelectedView = (view: WorkbenchViewType) => {
     workbenchStore.currentView.set(view);
@@ -123,24 +115,26 @@ export const Workbench = memo(({ chatStarted, isStreaming }: WorkspaceProps) => 
   return (
     chatStarted && (
       <motion.div
-        initial="closed"
-        animate={showWorkbench ? 'open' : 'closed'}
-        variants={workbenchVariants}
-        className="z-workbench"
+        className="z-workbench fixed top-[calc(var(--header-height)+0.5rem)] bottom-6 overflow-hidden"
+        initial={{ left: '100%', width: 0 }}
+        animate={{
+          left: isSmallViewport ? 0 : 'var(--workbench-left)',
+          width: targetWidth,
+        }}
+        transition={workbenchTransition}
       >
         <div
           className={classNames(
-            'fixed top-[calc(var(--header-height)+1.5rem)] bottom-6 w-[var(--workbench-inner-width)] mr-4 z-0 transition-[left,width] duration-200 bolt-ease-cubic-bezier',
+            'h-full flex-shrink-0 w-[var(--workbench-inner-width)] transition-[width] duration-200 bolt-ease-cubic-bezier',
             {
               'w-full': isSmallViewport,
-              'left-0': showWorkbench && isSmallViewport,
-              'left-[var(--workbench-left)]': showWorkbench,
-              'left-[100%]': !showWorkbench,
             },
           )}
         >
           <div className="absolute inset-0 px-2 lg:px-6">
-            <div className="h-full flex flex-col bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor shadow-sm rounded-lg overflow-hidden">
+            <div className={classNames('h-full flex flex-col bg-bolt-elements-background-depth-2 rounded-lg overflow-hidden bolt-scrollbar', {
+              'border border-bolt-elements-borderColor shadow-sm': showWorkbench,
+            })}>
               <div className="flex items-center px-3 py-2 border-b border-bolt-elements-borderColor">
                 <Slider selected={selectedView} options={sliderOptions} setSelected={setSelectedView} />
                 <div className="ml-auto" />

@@ -13,6 +13,12 @@ interface AssistantMessageProps {
    * auto-expands only then; reloaded messages stay collapsed.
    */
   isLiveMessage?: boolean;
+
+  /**
+   * Performance: true while this message is actively streaming, so
+   * CodeBlock can skip expensive syntax highlighting.
+   */
+  isStreaming?: boolean;
 }
 
 /*
@@ -37,7 +43,7 @@ function formatSeconds(milliseconds: number) {
   return `${(milliseconds / 1000).toFixed(1)}s`;
 }
 
-export const AssistantMessage = memo(({ content, annotations, isLiveMessage = false }: AssistantMessageProps) => {
+export const AssistantMessage = memo(({ content, annotations, isLiveMessage = false, isStreaming = false }: AssistantMessageProps) => {
   const filteredAnnotations = (annotations?.filter(
     (annotation: JSONValue) => annotation && typeof annotation === 'object' && Object.keys(annotation).includes('type'),
   ) || []) as { type: string; value: any }[];
@@ -124,7 +130,7 @@ export const AssistantMessage = memo(({ content, annotations, isLiveMessage = fa
           </div>
         </details>
       )}
-      <Markdown html>{content}</Markdown>
+      <Markdown html isStreaming={isStreaming}>{content}</Markdown>
       {/*
        * chat-response-stats: the stats line sits below the response body so
        * it never pushes the content down while streaming.

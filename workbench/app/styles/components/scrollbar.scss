@@ -1,0 +1,55 @@
+/* ──────────────────────────────────────────────
+ * Chat & Workbench 滚动条
+ * 半透明、窄轨、圆角，融入深/浅主题背景
+ * ────────────────────────────────────────────── */
+
+/* Light theme */
+:root[data-theme='light'] {
+  --bolt-scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --bolt-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+}
+
+/* Dark theme (default) */
+:root,
+:root[data-theme='dark'] {
+  --bolt-scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --bolt-scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+}
+
+/* Webkit (Chrome / Edge / Safari) */
+.bolt-scrollbar {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox: hidden by default */
+
+  &:hover {
+    scrollbar-color: var(--bolt-scrollbar-thumb) transparent; /* Firefox: show on hover */
+  }
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 3px;
+    transition: background 0.2s;
+  }
+
+  &:hover::-webkit-scrollbar-thumb {
+    background: var(--bolt-scrollbar-thumb);
+
+    &:hover {
+      background: var(--bolt-scrollbar-thumb-hover);
+    }
+  }
+
+  /* 角落占位（水平+垂直滚动条同时出现时） */
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}

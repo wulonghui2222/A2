@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { bundledLanguages, codeToHtml, isSpecialLang, type BundledLanguage, type SpecialLanguage } from 'shiki';
 import { classNames } from '~/utils/classNames';
 import { createScopedLogger } from '~/utils/logger';
@@ -13,12 +13,14 @@ interface CodeBlockProps {
   language?: BundledLanguage | SpecialLanguage;
   theme?: 'light-plus' | 'dark-plus';
   disableCopy?: boolean;
+  isStreaming?: boolean;
 }
 
 export const CodeBlock = memo(
-  ({ className, code, language = 'plaintext', theme = 'dark-plus', disableCopy = false }: CodeBlockProps) => {
+  ({ className, code, language = 'plaintext', theme = 'dark-plus', disableCopy = false, isStreaming = false }: CodeBlockProps) => {
     const [html, setHTML] = useState<string | undefined>(undefined);
     const [copied, setCopied] = useState(false);
+    const pendingCodeRef = useRef<string | null>(null);
 
     const copyToClipboard = () => {
       if (copied) {
@@ -41,12 +43,41 @@ export const CodeBlock = memo(
 
       logger.trace(`Language = ${language}`);
 
+      /*
+       * Performance: skip shiki syntax highlighting while streaming.
+       * Show plain text during streaming, then highlight once complete.
+       */
+      if (isStreaming) {
+        pendingCodeRef.current = code;
+        setHTML(undefined);
+        return;
+      }
+
+      pendingCodeRef.current = null;
+
       const processCode = async () => {
         setHTML(await codeToHtml(code, { lang: language, theme }));
       };
 
       processCode();
-    }, [code]);
+    }, [code, isStreaming]);
+
+    /*
+     * When streaming ends, apply syntax highlighting to the final code.
+     * This runs once after isStreaming flips to false.
+     */
+    useEffect(() => {
+      if (!isStreaming && pendingCodeRef.current !== null) {
+        const finalCode = pendingCodeRef.current;
+        pendingCodeRef.current = null;
+
+        const processCode = async () => {
+          setHTML(await codeToHtml(finalCode, { lang: language, theme }));
+        };
+
+        processCode();
+      }
+    }, [isStreaming]);
 
     return (
       <div className={classNames('relative group text-left', className)}>
@@ -75,7 +106,13 @@ export const CodeBlock = memo(
             </button>
           )}
         </div>
-        <div dangerouslySetInnerHTML={{ __html: html ?? '' }}></div>
+        {html ? (
+          <div dangerouslySetInnerHTML={{ __html: html }}></div>
+        ) : (
+          <pre className="overflow-x-auto p-4 text-sm">
+            <code>{code}</code>
+          </pre>
+        )}
       </div>
     );
   },
