@@ -2,7 +2,8 @@ import { WebContainer } from '@webcontainer/api';
 import { atom, map, type MapStore } from 'nanostores';
 import * as nodePath from 'node:path';
 import type { ActionAlert, BoltAction } from '~/types/actions';
-import { generationTelemetry } from '~/a2/telemetry';
+import { classifyCommand, generationTelemetry } from '~/a2/telemetry';
+import { A2_NPM_REGISTRY_MIRROR } from '~/a2/config';
 import { prepareStartRecovery } from '~/lib/runtime/snapshot-cache';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
@@ -284,7 +285,9 @@ export class ActionRunner {
       unreachable('Shell terminal not found');
     }
 
-    const resp = await shell.executeCommand(this.runnerId.get(), action.content, () => {
+    const command = await this.#applyNpmMirror(action.content);
+
+    const resp = await shell.executeCommand(this.runnerId.get(), command, () => {
       logger.debug(`[${action.type}]:Aborting Action\n\n`, action);
       action.abort();
     });
@@ -295,6 +298,53 @@ export class ActionRunner {
     }
 
     return resp?.exitCode;
+  }
+
+  /**
+   * A2 perf: installs inside the WebContainer against the default npm
+   * registry are slow on this network. npm / pnpm install commands carry the
+   * mirror registry on the command line itself (visible in the terminal),
+   * and the project additionally gets a .npmrc so later manual installs hit
+   * the mirror too (yarn has no registry flag and relies on it alone). Only
+   * the leading install segment of a compound command is rewritten. Best
+   * effort — a failure here never blocks the install.
+   */
+  async #applyNpmMirror(command: string): Promise<string> {
+    if (!A2_NPM_REGISTRY_MIRROR || classifyCommand(command) !== 'install') {
+      return command;
+    }
+
+    await this.#writeNpmrcMirror();
+
+    const trimmed = command.trim();
+
+    if (/^(npm|pnpm)\b/.test(trimmed)) {
+      const rewritten = trimmed.replace(
+        /^(npm|pnpm)(\s+(?:install|i|add)\b)/,
+        `$1$2 --registry=${A2_NPM_REGISTRY_MIRROR}`,
+      );
+      logger.debug(`Install command pinned to mirror registry: ${rewritten}`);
+
+      return rewritten;
+    }
+
+    return command;
+  }
+
+  /** Write the mirror registry into the project's .npmrc unless it already defines one. */
+  async #writeNpmrcMirror(): Promise<void> {
+    try {
+      const webcontainer = await this.#webcontainer;
+      const existing = await webcontainer.fs.readFile('.npmrc', 'utf-8').catch(() => undefined);
+
+      if (typeof existing === 'string' && existing.includes('registry=')) {
+        return;
+      }
+
+      await webcontainer.fs.writeFile('.npmrc', `registry=${A2_NPM_REGISTRY_MIRROR}\n`);
+    } catch (error) {
+      logger.warn('Failed to prepare .npmrc mirror; installs keep the command-line flag only', error);
+    }
   }
 
   async #runStartAction(action: ActionState) {
