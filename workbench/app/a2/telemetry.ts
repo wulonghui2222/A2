@@ -73,6 +73,14 @@ export interface TelemetryRound {
   interrupts: TelemetryInterrupt[];
   webcontainerBootMs?: number;
   restore?: TelemetryRestoreInfo;
+
+  /**
+   * add-multi-agent-team (task 6.1): rounds of the team pipeline are tagged —
+   * 'plan' rounds are PD planning calls (no actions), 'exec' rounds carry the
+   * 1-based plan step index they execute.
+   */
+  phase?: 'plan' | 'exec';
+  step?: number;
 }
 
 /** Server-authoritative timing from the WB-09 usage annotation (design D2). */
@@ -102,6 +110,10 @@ export interface TelemetryAnnotationValue {
   interrupts: TelemetryInterrupt[];
   webcontainerBootMs?: number;
   restore?: TelemetryRestoreInfo;
+
+  /** add-multi-agent-team (task 6.1): team pipeline round tags. */
+  phase?: 'plan' | 'exec';
+  step?: number;
 }
 
 export interface TelemetryAnnotation {
@@ -150,6 +162,9 @@ interface CollectorInternals {
   openPreviewPorts: Set<number>;
   persistHandler?: TelemetryPersistHandler;
   graceTimers: Map<string, ReturnType<typeof setTimeout>>;
+
+  /** add-multi-agent-team (task 6.1): phase/step tag for the next started round. */
+  pendingPhase?: { phase: 'plan' | 'exec'; step?: number };
 }
 
 function createInternals(): CollectorInternals {
@@ -314,6 +329,8 @@ export function buildTelemetryAnnotation(round: TelemetryRound): TelemetryAnnota
     interrupts: round.interrupts.map((interrupt) => ({ ...interrupt })),
     ...(round.webcontainerBootMs !== undefined ? { webcontainerBootMs: round.webcontainerBootMs } : {}),
     ...(round.restore ? { restore: { ...round.restore } } : {}),
+    ...(round.phase ? { phase: round.phase } : {}),
+    ...(round.step !== undefined ? { step: round.step } : {}),
   };
 
   let annotation: TelemetryAnnotation = { type: 'telemetry', value };
@@ -379,6 +396,65 @@ export const generationTelemetry = {
     internals.pendingStartedAt = at;
   },
 
+  /**
+   * add-multi-agent-team (task 6.1): tag the NEXT started round with its team
+   * pipeline phase ('exec' rounds also carry the 1-based step index). Called
+   * before the round's assistant id is known, like beginRequest.
+   */
+  beginPhase(phase: 'plan' | 'exec', step?: number) {
+    internals.pendingPhase = { phase, ...(step !== undefined ? { step } : {}) };
+  },
+
+  /**
+   * add-multi-agent-team (task 6.1): record a PD planning round. Plan rounds
+   * never have actions, so they finalize immediately; the setTimeout(0) lets
+   * the just-inserted plan message flush into messagesRef before the persist
+   * handler reads it (same stale-read guard as the annotation persist path).
+   */
+  recordPlanRound(
+    messageId: string,
+    timing: { startedAt: number; firstTokenAt?: number; endedAt?: number },
+  ) {
+    setTimeout(() => {
+      if (internals.rounds.get()[messageId]) {
+        return;
+      }
+
+      const round: TelemetryRound = {
+        messageId,
+        source: internals.currentSource,
+        status: 'finalized',
+        startedAt: timing.startedAt,
+        firstTokenAt: timing.firstTokenAt,
+        streamEndedAt: timing.endedAt,
+        finalizedAt: Date.now(),
+        actions: [],
+        preview: {},
+        interrupts: [],
+        phase: 'plan',
+      };
+
+      internals.order.push(messageId);
+
+      while (internals.order.length > MAX_ROUNDS) {
+        const evicted = internals.order.shift();
+
+        if (evicted !== undefined) {
+          const { [evicted]: _dropped, ...rest } = internals.rounds.get();
+          internals.rounds.set(rest);
+        }
+      }
+
+      internals.rounds.setKey(messageId, round);
+
+      if (round.source === 'fresh' && internals.persistHandler) {
+        Promise.resolve(internals.persistHandler(messageId, buildTelemetryAnnotation(round))).catch((error) => {
+          console.warn('Failed to persist plan-round telemetry annotation', error);
+        });
+      }
+    }, 0);
+  },
+
   startRound(messageId: string, at?: number): TelemetryRound {
     const existing = internals.rounds.get()[messageId];
 
@@ -397,6 +473,17 @@ export const generationTelemetry = {
     };
 
     internals.pendingStartedAt = undefined;
+
+    // add-multi-agent-team (task 6.1): attach the pending phase/step tag
+    if (internals.pendingPhase) {
+      round.phase = internals.pendingPhase.phase;
+
+      if (internals.pendingPhase.step !== undefined) {
+        round.step = internals.pendingPhase.step;
+      }
+
+      internals.pendingPhase = undefined;
+    }
 
     /*
      * replay-snapshot-cache (design D7): the restore attempt happens before

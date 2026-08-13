@@ -85,7 +85,7 @@ export default defineConfig((config) => {
     test: {
       include: ['app/**/*.spec.ts'],
     },
-    envPrefix: ["VITE_","OPENAI_LIKE_API_BASE_URL", "OLLAMA_API_BASE_URL", "LMSTUDIO_API_BASE_URL","TOGETHER_API_BASE_URL", "A2_ENABLE_RESPONSE_STATS", "A2_ENABLE_GENERATION_TELEMETRY"],
+    envPrefix: ["VITE_","OPENAI_LIKE_API_BASE_URL", "OLLAMA_API_BASE_URL", "LMSTUDIO_API_BASE_URL","TOGETHER_API_BASE_URL", "A2_ENABLE_RESPONSE_STATS", "A2_ENABLE_GENERATION_TELEMETRY", "A2_ENABLE_MULTI_AGENT_MODE"],
     css: {
       preprocessorOptions: {
         scss: {

@@ -33,7 +33,9 @@ function parseCookies(cookieHeader: string) {
 
 async function llmCallAction({ context, request }: ActionFunctionArgs) {
   const { system, message, model, provider, streamOutput } = await request.json<{
-    system: string;
+    // add-multi-agent-team (task 2.3): system is optional so lightweight calls
+    // (iteration triage) can reuse this endpoint; absent = previous behavior.
+    system?: string;
     message: string;
     model: string;
     provider: ProviderInfo;

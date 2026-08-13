@@ -49,3 +49,29 @@ export const A2_ENABLE_GENERATION_TELEMETRY = (import.meta.env.A2_ENABLE_GENERAT
  * "a2-nm-snapshot-cache" ("off"/"on") overrides it without a deploy.
  */
 export const A2_ENABLE_NM_SNAPSHOT_CACHE = (import.meta.env.A2_ENABLE_NM_SNAPSHOT_CACHE ?? 'true') !== 'false';
+
+/*
+ * add-multi-agent-team (design D6, task 1.1): multi-agent team mode
+ * (TL + PD + Engineer). Defaults off; the env flag turns it on, and the
+ * localStorage key "a2-multi-agent-mode" ("on"/"off") overrides the flag at
+ * runtime so e2e can enable the feature on a shared dev server.
+ */
+const A2_MULTI_AGENT_ENV = (import.meta.env.A2_ENABLE_MULTI_AGENT_MODE ?? 'false') === 'true';
+
+export const A2_ENABLE_MULTI_AGENT_MODE = A2_MULTI_AGENT_ENV;
+
+export function isMultiAgentModeEnabled(): boolean {
+  if (typeof localStorage !== 'undefined') {
+    const override = localStorage.getItem('a2-multi-agent-mode');
+
+    if (override === 'on') {
+      return true;
+    }
+
+    if (override === 'off') {
+      return false;
+    }
+  }
+
+  return A2_MULTI_AGENT_ENV;
+}

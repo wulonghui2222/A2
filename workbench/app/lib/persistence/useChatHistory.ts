@@ -31,6 +31,16 @@ export const db = persistenceEnabled ? await openDatabase() : undefined;
 export const chatId = atom<string | undefined>(undefined);
 export const description = atom<string | undefined>(undefined);
 
+/*
+ * add-multi-agent-team (bugfix): the first save can fire several times within
+ * the 50ms sampler window (approve handoff inserts several messages at once),
+ * and each call used to enter the creation branch while the previous
+ * getNextId round-trip was still in flight — producing duplicate empty
+ * projects and racing chatId values. Memoize the allocation so every
+ * concurrent first save shares one project.
+ */
+let pendingNextId: Promise<{ id: string; urlId: string }> | undefined;
+
 export function useChatHistory() {
   const navigate = useNavigate();
   const { id: mixedId } = useLoaderData<{ id?: string }>();
@@ -138,7 +148,14 @@ export function useChatHistory() {
       }
 
       if (initialMessages.length === 0 && !chatId.get()) {
-        const next = await getNextId(db);
+        if (!pendingNextId) {
+          pendingNextId = getNextId(db).catch((error) => {
+            pendingNextId = undefined;
+            throw error;
+          });
+        }
+
+        const next = await pendingNextId;
 
         chatId.set(next.id);
         setUrlId(next.urlId);
