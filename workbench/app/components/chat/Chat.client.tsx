@@ -844,6 +844,8 @@ export const ChatImpl = memo(
             onRetryStep={tl.retryStep}
             onSkipStep={tl.skipStep}
             onTerminate={tl.terminate}
+            onPause={tl.pause}
+            onResume={tl.resume}
           />
         )}
       </>

@@ -24,6 +24,7 @@ export function AgentPlanPanel({ steps, selection, streaming = false, onApprove,
   const [draft, setDraft] = useState('');
   const [replanning, setReplanning] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     if (!editing) {
@@ -53,9 +54,22 @@ export function AgentPlanPanel({ steps, selection, streaming = false, onApprove,
           </span>
         )}
         {streaming && <span className="text-xs text-bolt-elements-textTertiary font-normal">生成中…</span>}
+        {collapsed && !streaming && (
+          <span className="text-xs text-bolt-elements-textTertiary font-normal">{displaySteps.length} 步</span>
+        )}
+        <button
+          type="button"
+          data-testid="agent-plan-collapse"
+          aria-label={collapsed ? '展开步骤' : '折叠步骤'}
+          className="ml-auto p-1 rounded-md text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary"
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          <span className={classNames('inline-block', collapsed ? 'i-ph:caret-down' : 'i-ph:caret-up')} />
+        </button>
       </div>
 
-      {editing ? (
+      {!collapsed &&
+        (editing ? (
         <textarea
           data-testid="agent-plan-edit"
           className="w-full min-h-[120px] p-2 mb-3 rounded-md border border-bolt-elements-borderColor bg-transparent text-sm text-bolt-elements-textPrimary outline-none resize-y"
@@ -73,9 +87,9 @@ export function AgentPlanPanel({ steps, selection, streaming = false, onApprove,
             displaySteps.map((step, index) => <li key={index}>{step}</li>)
           )}
         </ol>
-      )}
+        ))}
 
-      {replanning && (
+      {!collapsed && replanning && (
         <div className="mb-3">
           <textarea
             data-testid="agent-plan-feedback"
@@ -130,6 +144,7 @@ export function AgentPlanPanel({ steps, selection, streaming = false, onApprove,
               if (editing) {
                 commitEdit();
               } else {
+                setCollapsed(false);
                 setEditing(true);
               }
             }}

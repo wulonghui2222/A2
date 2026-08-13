@@ -7,10 +7,50 @@ import { UserMessage } from './UserMessage';
 import { useLocation } from '@remix-run/react';
 import { db, chatId } from '~/lib/persistence/useChatHistory';
 import { forkChat } from '~/lib/persistence/db';
+import { isPlanAnnotation } from '~/a2/multi-agent/plan-model';
 import { toast } from 'react-toastify';
 import WithTooltip from '~/components/ui/Tooltip';
 
 const INITIAL_VISIBLE_COUNT = 20;
+
+/*
+ * add-multi-agent-team: per-card agent attribution, derived from persisted
+ * markers so reloaded chats keep their badges. PD = plan annotation, TL =
+ * tl-wrapup annotation, Engineer = assistant round following a hidden
+ * per-step instruction.
+ */
+function agentLabelFor(messages: Message[], index: number): string | undefined {
+  const annotations = (messages[index].annotations ?? []) as unknown[];
+
+  if (annotations.some((annotation) => (annotation as { type?: string })?.type === 'tl-wrapup')) {
+    return 'TL';
+  }
+
+  if (annotations.some(isPlanAnnotation)) {
+    return 'PD';
+  }
+
+  const previous = messages[index - 1];
+
+  if (previous?.role === 'user' && ((previous.annotations ?? []) as unknown[]).includes('hidden')) {
+    /*
+     * runStepRound appends the hidden instruction with array (parts)
+     * content, so live messages carry an array while reloaded ones carry
+     * a string — normalize before matching.
+     */
+    const previousText =
+      typeof previous.content === 'string'
+        ? previous.content
+        : ((previous.content as { text?: string }[]) ?? []).map((part) => part?.text ?? '').join('\n');
+    const match = /当前执行步骤 (\d+)/.exec(previousText);
+
+    if (match) {
+      return `工程师 · 步骤 ${match[1]}`;
+    }
+  }
+
+  return undefined;
+}
 
 interface MessagesProps {
   id?: string;
@@ -113,6 +153,7 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
                     <AssistantMessage
                       content={content}
                       annotations={message.annotations}
+                      agentLabel={agentLabelFor(messages, actualIndex)}
                       /*
                        * dashscope-reasoning-stream (task 7.4): the reasoning
                        * panel auto-expands only on the live assistant message.
@@ -158,7 +199,17 @@ export const Messages = React.forwardRef<HTMLDivElement, MessagesProps>((props: 
          * dashscope-reasoning-stream: spinner and live status share one
          * centered line instead of stacking vertically.
          */
-        <div className="flex items-center justify-center gap-3 w-full mt-4">
+        <div
+          className={classNames(
+            'flex items-center justify-center gap-3 w-full',
+            /*
+             * While thinking the card ends at the reasoning panel, so the
+             * default mt-4 plus the card padding reads as a big empty gap;
+             * pull the live status line up under the card.
+             */
+            requestStatus === 'thinking' ? 'mt-0' : 'mt-4',
+          )}
+        >
           <div className="text-bolt-elements-textSecondary i-svg-spinners:3-dots-fade text-2xl"></div>
           <ResponseStats status={requestStatus} startedAt={requestStartedAt} contentLength={streamingContentLength} />
         </div>

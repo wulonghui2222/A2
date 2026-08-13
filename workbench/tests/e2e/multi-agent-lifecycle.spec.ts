@@ -132,6 +132,38 @@ test.describe('迭代生命周期 (D13/D14)', () => {
     expect(counters.triage).toBe(1);
   });
 
+  test('暂停后继续：推进可中断可恢复', async ({ page }) => {
+    await enableMultiAgentFlag(page);
+    await registerUser(page);
+    const counters = await mountMultiAgentStub(page, {
+      planSteps: FIRST_GEN_STEPS,
+      chatScript: [chatOk(stepArtifactMessage(1)), chatOk(stepArtifactMessage(2))],
+    });
+
+    await page.goto('/');
+    await expect(page.getByTestId('agent-mode-multi')).toBeVisible({ timeout: ROUND_TIMEOUT });
+    await page.getByTestId('agent-mode-multi').click();
+    await submitPrompt(page, '做一个团队介绍页面');
+
+    const approve = page.getByTestId('agent-plan-approve');
+    await expect(approve).toBeEnabled({ timeout: ROUND_TIMEOUT });
+    await approve.click();
+
+    // Pause inside the executing/settling window of the first steps.
+    await page.getByTestId('tl-pause').click({ timeout: ROUND_TIMEOUT });
+    await expect(page.getByTestId('tl-resume')).toBeVisible({ timeout: ROUND_TIMEOUT });
+    await expect(page.getByText('TL：推进已暂停，点击「继续」恢复')).toBeVisible();
+
+    // While paused the live round may finish, but nothing advances.
+    await page.waitForTimeout(4_000);
+    await expect(page.getByText('TL：计划执行完毕。')).toHaveCount(0);
+
+    // Resume drives the plan to completion.
+    await page.getByTestId('tl-resume').click();
+    await expect(page.getByText('TL：计划执行完毕。')).toBeVisible({ timeout: ROUND_TIMEOUT });
+    expect(counters.chat).toBe(2);
+  });
+
   test('单智能体模式迭代无分诊', async ({ page }) => {
     await enableMultiAgentFlag(page);
     await registerUser(page);

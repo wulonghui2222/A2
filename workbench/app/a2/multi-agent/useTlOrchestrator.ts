@@ -52,6 +52,8 @@ export interface UseTlOrchestratorResult {
   startPlanning: () => void;
   proposePlan: (stepTexts: string[]) => void;
   approve: () => void;
+  pause: () => void;
+  resume: () => void;
   retryStep: () => void;
   skipStep: () => void;
   terminate: () => void;
@@ -128,9 +130,18 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
   const phaseRef = useRef(phase);
   const stepsRef = useRef(steps);
   const indexRef = useRef(currentIndex);
+  const failReasonRef = useRef(failReason);
   phaseRef.current = phase;
   stepsRef.current = steps;
   indexRef.current = currentIndex;
+  failReasonRef.current = failReason;
+
+  /*
+   * The round to re-watch when resuming from a user pause: set when a round
+   * finishes (either just before settling, or while the user is paused),
+   * cleared whenever the orchestration moves past it.
+   */
+  const resumeRoundIdRef = useRef<string | undefined>(undefined);
 
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const unsubscribeRef = useRef<(() => void) | undefined>(undefined);
@@ -155,6 +166,7 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
 
   /** Mark step done and drive the next round, or finish the whole plan. */
   const advanceFrom = (index: number) => {
+    resumeRoundIdRef.current = undefined;
     const stepsNow = stepsRef.current.map((step, i) =>
       i === index && step.status !== 'skipped' && step.status !== 'failed' ? { ...step, status: 'done' as TlStepStatus } : step,
     );
@@ -178,9 +190,54 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
 
   const pauseAt = (index: number, reason: string) => {
     clearSettleWatch();
+    resumeRoundIdRef.current = undefined;
     setStepStatus(index, 'failed');
     setFailReason(reason);
     setPhase('paused');
+  };
+
+  /** User-initiated pause: hold advancement; the live round may still finish. */
+  const pause = () => {
+    if (phaseRef.current !== 'executing' && phaseRef.current !== 'settling') {
+      return;
+    }
+
+    /*
+     * Sync the ref before setState: if the stream's onFinish lands before
+     * the next render, onRoundFinished must see `paused` (and record the
+     * round for resume) instead of advancing through the settle watch.
+     */
+    phaseRef.current = 'paused';
+    clearSettleWatch();
+    setFailReason(undefined);
+    setPhase('paused');
+  };
+
+  /**
+   * Resume from a user pause. If the paused round already finished (or the
+   * pause happened during settling), re-enter the settle watch for it;
+   * otherwise the stream is still live and the normal onFinish path applies.
+   */
+  const resume = () => {
+    if (phaseRef.current !== 'paused' || failReasonRef.current) {
+      return;
+    }
+
+    const roundId = resumeRoundIdRef.current;
+
+    if (roundId) {
+      phaseRef.current = 'settling';
+      setPhase('settling');
+      watchRound(roundId);
+    } else {
+      /*
+       * The stream is still live: sync the ref so an onFinish landing
+       * before the next render takes the normal settle path instead of
+       * being recorded as a paused round nobody re-watches.
+       */
+      phaseRef.current = 'executing';
+      setPhase('executing');
+    }
   };
 
   /*
@@ -297,7 +354,7 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
   };
 
   const retryStep = () => {
-    if (phaseRef.current !== 'paused') {
+    if (phaseRef.current !== 'paused' || !failReasonRef.current) {
       return;
     }
 
@@ -310,6 +367,10 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
   };
 
   const skipStep = () => {
+    if (phaseRef.current === 'paused' && !failReasonRef.current) {
+      return;
+    }
+
     if (phaseRef.current !== 'paused' && phaseRef.current !== 'settling') {
       return;
     }
@@ -345,11 +406,13 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
     }
 
     clearSettleWatch();
+    resumeRoundIdRef.current = undefined;
     setPhase('terminated');
   };
 
   const reset = () => {
     clearSettleWatch();
+    resumeRoundIdRef.current = undefined;
     setPhase('idle');
     setSteps([]);
     setCurrentIndex(-1);
@@ -358,6 +421,13 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
 
   /** Chat's onFinish tap; only rounds driven by this orchestrator are judged. */
   const onRoundFinished = (messageId: string) => {
+    if (phaseRef.current === 'paused' && !failReasonRef.current) {
+      // The stream ended while the user paused: remember the round so
+      // resume() can re-enter the settle watch.
+      resumeRoundIdRef.current = messageId;
+      return;
+    }
+
     if (phaseRef.current !== 'executing') {
       return;
     }
@@ -366,12 +436,19 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
      * Sync the ref before watchRound: setState is not visible until the next
      * render, and watchRound's immediate evaluate() must see `settling`.
      */
+    resumeRoundIdRef.current = messageId;
     phaseRef.current = 'settling';
     setPhase('settling');
     watchRound(messageId);
   };
 
   const onRoundError = (reason?: string) => {
+    if (phaseRef.current === 'paused' && !failReasonRef.current) {
+      // A user pause turns into a failure pause if the live round errors.
+      setFailReason(reason || '生成流出错');
+      return;
+    }
+
     if (phaseRef.current !== 'executing' && phaseRef.current !== 'settling') {
       return;
     }
@@ -387,6 +464,8 @@ export function useTlOrchestrator(options: UseTlOrchestratorOptions): UseTlOrche
     startPlanning,
     proposePlan,
     approve,
+    pause,
+    resume,
     retryStep,
     skipStep,
     terminate,

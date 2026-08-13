@@ -421,9 +421,13 @@ export class WorkbenchStore {
         this.setSelectedFile(fullPath);
       }
 
-      if (this.currentView.value !== 'code') {
-        this.currentView.set('code');
-      }
+      /*
+       * NOTE: file actions no longer force the workbench back to the code
+       * view. The forced switch yanked users out of Preview on every file
+       * write during generation; the view is now driven only by the user's
+       * Slider choice and the one-time auto-switch to preview when the dev
+       * server first opens (Workbench.client hasPreview effect).
+       */
 
       const doc = this.#editorStore.documents.get()[fullPath];
 
