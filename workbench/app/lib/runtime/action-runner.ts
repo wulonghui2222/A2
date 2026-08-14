@@ -2,8 +2,7 @@ import { WebContainer } from '@webcontainer/api';
 import { atom, map, type MapStore } from 'nanostores';
 import * as nodePath from 'node:path';
 import type { ActionAlert, BoltAction } from '~/types/actions';
-import { classifyCommand, generationTelemetry } from '~/a2/telemetry';
-import { A2_NPM_REGISTRY_MIRROR } from '~/a2/config';
+import { generationTelemetry } from '~/a2/telemetry';
 import { prepareStartRecovery } from '~/lib/runtime/snapshot-cache';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
@@ -70,6 +69,7 @@ export class ActionRunner {
   #webcontainer: Promise<WebContainer>;
   #currentExecutionPromise: Promise<void> = Promise.resolve();
   #shellTerminal: () => BoltShell;
+  #npmrcEnsured = false;
   runnerId = atom<string>(`${Date.now()}`);
   actions: ActionsMap = map({});
   onAlert?: (alert: ActionAlert) => void;
@@ -175,6 +175,8 @@ export class ActionRunner {
     let exitCode: number | undefined;
 
     try {
+      await this.#ensureNpmrc();
+
       switch (action.type) {
         case 'shell': {
           exitCode = await this.#runShellAction(action);
@@ -285,9 +287,7 @@ export class ActionRunner {
       unreachable('Shell terminal not found');
     }
 
-    const command = await this.#applyNpmMirror(action.content);
-
-    const resp = await shell.executeCommand(this.runnerId.get(), command, () => {
+    const resp = await shell.executeCommand(this.runnerId.get(), action.content, () => {
       logger.debug(`[${action.type}]:Aborting Action\n\n`, action);
       action.abort();
     });
@@ -300,50 +300,30 @@ export class ActionRunner {
     return resp?.exitCode;
   }
 
-  /**
-   * A2 perf: installs inside the WebContainer against the default npm
-   * registry are slow on this network. npm / pnpm install commands carry the
-   * mirror registry on the command line itself (visible in the terminal),
-   * and the project additionally gets a .npmrc so later manual installs hit
-   * the mirror too (yarn has no registry flag and relies on it alone). Only
-   * the leading install segment of a compound command is rewritten. Best
-   * effort — a failure here never blocks the install.
-   */
-  async #applyNpmMirror(command: string): Promise<string> {
-    if (!A2_NPM_REGISTRY_MIRROR || classifyCommand(command) !== 'install') {
-      return command;
-    }
+  /** Write optimization settings into the project's .npmrc once, before any action runs. */
+  async #ensureNpmrc(): Promise<void> {
+    if (this.#npmrcEnsured) return;
+    this.#npmrcEnsured = true;
 
-    await this.#writeNpmrcMirror();
-
-    const trimmed = command.trim();
-
-    if (/^(npm|pnpm)\b/.test(trimmed)) {
-      const rewritten = trimmed.replace(
-        /^(npm|pnpm)(\s+(?:install|i|add)\b)/,
-        `$1$2 --registry=${A2_NPM_REGISTRY_MIRROR}`,
-      );
-      logger.debug(`Install command pinned to mirror registry: ${rewritten}`);
-
-      return rewritten;
-    }
-
-    return command;
-  }
-
-  /** Write the mirror registry into the project's .npmrc unless it already defines one. */
-  async #writeNpmrcMirror(): Promise<void> {
     try {
       const webcontainer = await this.#webcontainer;
+      await webcontainer.fs.mkdir('.', { recursive: true });
+
       const existing = await webcontainer.fs.readFile('.npmrc', 'utf-8').catch(() => undefined);
+      const current = typeof existing === 'string' ? existing : '';
 
-      if (typeof existing === 'string' && existing.includes('registry=')) {
-        return;
+      const lines: string[] = [];
+      if (!current.includes('prefer-offline')) lines.push('prefer-offline=true');
+      if (!current.includes('audit=false')) lines.push('audit=false');
+      if (!current.includes('fund=false')) lines.push('fund=false');
+      if (!current.includes('loglevel=')) lines.push('loglevel=info');
+
+      if (lines.length > 0) {
+        const content = current ? `${current.trimEnd()}\n${lines.join('\n')}\n` : `${lines.join('\n')}\n`;
+        await webcontainer.fs.writeFile('.npmrc', content);
       }
-
-      await webcontainer.fs.writeFile('.npmrc', `registry=${A2_NPM_REGISTRY_MIRROR}\n`);
     } catch (error) {
-      logger.warn('Failed to prepare .npmrc mirror; installs keep the command-line flag only', error);
+      logger.warn('Failed to prepare .npmrc', error);
     }
   }
 
