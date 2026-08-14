@@ -284,7 +284,15 @@ export class ActionRunner {
       unreachable('Shell terminal not found');
     }
 
-    const resp = await shell.executeCommand(this.runnerId.get(), action.content, () => {
+    // Append npm install optimization flags as a safety net alongside .npmrc
+    let command = action.content;
+    if (/^\s*npm\s+(install|i)\b/.test(command)) {
+      if (!command.includes('--prefer-offline')) command += ' --prefer-offline';
+      if (!command.includes('--no-audit')) command += ' --no-audit';
+      if (!command.includes('--no-fund')) command += ' --no-fund';
+    }
+
+    const resp = await shell.executeCommand(this.runnerId.get(), command, () => {
       logger.debug(`[${action.type}]:Aborting Action\n\n`, action);
       action.abort();
     });
