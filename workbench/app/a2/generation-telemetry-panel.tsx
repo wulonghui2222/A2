@@ -61,6 +61,10 @@ interface DisplayRound {
   startedAt: number;
   totalMs: number;
 
+  /** add-multi-agent-team (task 6.1): team pipeline round tags. */
+  phase?: 'plan' | 'exec';
+  step?: number;
+
   /** dashscope-reasoning-stream (task 8.2): TTRT phase, renders before wait. */
   thinkingMs?: number;
   waitMs?: number;
@@ -132,6 +136,8 @@ function fromLiveRound(round: TelemetryRound): DisplayRound {
     persisted: false,
     startedAt: round.startedAt,
     totalMs,
+    phase: round.phase,
+    step: round.step,
     thinkingMs,
     waitMs,
     streamMs,
@@ -180,6 +186,8 @@ function fromAnnotation(value: TelemetryAnnotationValue, index: number): Display
     persisted: true,
     startedAt: value.startedAt,
     totalMs,
+    phase: value.phase,
+    step: value.step,
     thinkingMs: phases.thinkingMs,
     waitMs: phases.waitMs,
     streamMs: phases.streamMs,
@@ -238,6 +246,23 @@ function RoundRow({ round }: { round: DisplayRound }) {
     <div style={{ padding: '8px 12px', borderTop: '1px solid #2d3138' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
         <span>
+          {/* add-multi-agent-team (task 6.1): plan / exec-step row badges */}
+          {round.phase === 'plan' && (
+            <span
+              style={{ padding: '0 6px', borderRadius: 4, marginRight: 6, background: '#0f766e' }}
+              data-testid="telemetry-phase-plan"
+            >
+              规划
+            </span>
+          )}
+          {round.phase === 'exec' && (
+            <span
+              style={{ padding: '0 6px', borderRadius: 4, marginRight: 6, background: '#7c3aed' }}
+              data-testid="telemetry-phase-exec"
+            >
+              执行{round.step !== undefined ? ` · 步骤 ${round.step}` : ''}
+            </span>
+          )}
           <span
             style={{
               padding: '0 6px',

@@ -62,7 +62,6 @@ export class WorkbenchStore {
   modifiedFiles = new Set<string>();
   artifactIdList: string[] = [];
   #globalExecutionQueue = Promise.resolve();
-  #npmrcWritten = false;
 
   /*
    * replay-snapshot-cache (design D5): message id of the bootstrap round
@@ -375,29 +374,7 @@ export class WorkbenchStore {
       this.addToExecutionQueue(() => this._runAction(data, isStreaming));
     }
   }
-  /**
-   * Write .npmrc into the WebContainer workdir once, before any action runs.
-   * This ensures npm install uses optimized settings (skip audit/fund, prefer offline).
-   */
-  async #ensureNpmrc() {
-    if (this.#npmrcWritten) return;
-    this.#npmrcWritten = true;
-
-    try {
-      const wc = await webcontainer;
-      await wc.fs.mkdir(WORK_DIR, { recursive: true });
-      await wc.fs.writeFile(
-        nodePath.join(WORK_DIR, '.npmrc'),
-        'prefer-offline=true\naudit=false\nfund=false\nloglevel=error\n',
-      );
-    } catch (err) {
-      console.warn('Failed to write .npmrc', err);
-    }
-  }
-
   async _runAction(data: ActionCallbackData, isStreaming: boolean = false) {
-    await this.#ensureNpmrc();
-
     const { messageId } = data;
 
     const artifact = this.#getArtifact(messageId);
@@ -444,9 +421,13 @@ export class WorkbenchStore {
         this.setSelectedFile(fullPath);
       }
 
-      if (this.currentView.value !== 'code') {
-        this.currentView.set('code');
-      }
+      /*
+       * NOTE: file actions no longer force the workbench back to the code
+       * view. The forced switch yanked users out of Preview on every file
+       * write during generation; the view is now driven only by the user's
+       * Slider choice and the one-time auto-switch to preview when the dev
+       * server first opens (Workbench.client hasPreview effect).
+       */
 
       const doc = this.#editorStore.documents.get()[fullPath];
 

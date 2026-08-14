@@ -5,8 +5,20 @@ import { memo, useEffect, useState } from 'react';
  * signals (send / onResponse / first content delta / onFinish / onError).
  * dashscope-reasoning-stream inserts `thinking` between waiting and streaming
  * when the first reasoning annotation arrives (WB-09: waiting = 等待响应).
+ *
+ * add-multi-agent-team (task 3.4 / WB-17): `planning` covers the PD planning
+ * round stream; `plan_proposed` is the hard gate waiting for user approval.
  */
-export type RequestStatus = 'idle' | 'submitting' | 'waiting' | 'thinking' | 'streaming' | 'finished' | 'error';
+export type RequestStatus =
+  | 'idle'
+  | 'submitting'
+  | 'waiting'
+  | 'thinking'
+  | 'streaming'
+  | 'planning'
+  | 'plan_proposed'
+  | 'finished'
+  | 'error';
 
 interface ResponseStatsProps {
   status: RequestStatus;
@@ -28,7 +40,9 @@ function estimateTokens(contentLength: number) {
 export const ResponseStats = memo(({ status, startedAt, contentLength = 0 }: ResponseStatsProps) => {
   const [now, setNow] = useState(() => Date.now());
 
-  const live = (status === 'waiting' || status === 'thinking' || status === 'streaming') && startedAt !== undefined;
+  const live =
+    (status === 'waiting' || status === 'thinking' || status === 'streaming' || status === 'planning') &&
+    startedAt !== undefined;
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -49,11 +63,27 @@ export const ResponseStats = memo(({ status, startedAt, contentLength = 0 }: Res
   }, [live, status]);
 
   if (!live) {
+    if (status === 'plan_proposed') {
+      return (
+        <div className="text-sm text-bolt-elements-textSecondary" data-testid="response-stats-plan-proposed">
+          计划已就绪，等待批准
+        </div>
+      );
+    }
+
     return null;
   }
 
   const elapsedSeconds = Math.max(0, (now - (startedAt as number)) / 1000);
   const elapsedLabel = `${elapsedSeconds.toFixed(1)}s`;
+
+  if (status === 'planning') {
+    return (
+      <div className="text-sm text-bolt-elements-textSecondary" data-testid="response-stats-planning">
+        PD 正在规划… {elapsedLabel}
+      </div>
+    );
+  }
 
   if (status === 'waiting') {
     return (

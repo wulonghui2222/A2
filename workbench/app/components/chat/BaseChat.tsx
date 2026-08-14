@@ -22,6 +22,8 @@ import { A2_ENABLE_BYOK } from '~/a2/config';
 
 import FilePreview from './FilePreview';
 import { ModelSelector } from '~/components/chat/ModelSelector';
+// add-multi-agent-team (task 3.1 / MA-02): agent mode pill
+import { AgentModeSwitch } from './AgentModeSwitch';
 import type { IProviderSetting, ProviderInfo } from '~/types/model';
 import { ScreenshotStateManager } from './ScreenshotStateManager';
 import type { ActionAlert } from '~/types/actions';
@@ -64,6 +66,13 @@ interface BaseChatProps {
   requestStatus?: import('./ResponseStats').RequestStatus;
   requestStartedAt?: number;
   streamingContentLength?: number;
+
+  // add-multi-agent-team (design D6/D12 / MA-02): mode switch + pipeline panels
+  agentModeAvailable?: boolean;
+  agentMode?: import('~/a2/multi-agent/pd-planner').AgentMode;
+  onAgentModeChange?: (mode: import('~/a2/multi-agent/pd-planner').AgentMode) => void;
+  agentModeDisabled?: boolean;
+  multiAgentPanel?: React.ReactNode;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -100,6 +109,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       requestStatus,
       requestStartedAt,
       streamingContentLength,
+
+      // add-multi-agent-team (design D6/D12 / MA-02)
+      agentModeAvailable = false,
+      agentMode,
+      onAgentModeChange,
+      agentModeDisabled = false,
+      multiAgentPanel,
     },
     ref,
   ) => {
@@ -373,6 +389,9 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     />
                   )}
                 </div>
+                {/* add-multi-agent-team (design D12): plan review card / TL
+                    progress panel, mounted above the prompt box. */}
+                {multiAgentPanel}
                 <div
                   className={classNames(
                     'bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor relative w-full max-w-chat mx-auto z-prompt',
@@ -537,6 +556,18 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                         export / model settings) is removed; the send button instead
                         sits pinned and always visible at the bottom-right corner. */}
                     <div className="flex justify-end items-center p-2 pt-0">
+                      {/* add-multi-agent-team (task 3.1 / MA-02): two-state mode
+                          pill, visible for the whole conversation lifecycle,
+                          disabled while a TL orchestration is active. */}
+                      {agentModeAvailable && agentMode && onAgentModeChange && (
+                        <div className="mr-2">
+                          <AgentModeSwitch
+                            mode={agentMode}
+                            onChange={onAgentModeChange}
+                            disabled={agentModeDisabled}
+                          />
+                        </div>
+                      )}
                       <ClientOnly>
                         {() => (
                           <SendButton
